@@ -1,0 +1,2 @@
+"""ShortsFactory application package."""
+
