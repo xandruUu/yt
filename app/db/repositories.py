@@ -159,6 +159,14 @@ def create_character_profile(session: Session, **data: Any) -> models.CharacterP
     return add_and_commit(session, models.CharacterProfile(**data))
 
 
+def create_character_family(session: Session, **data: Any) -> models.CharacterFamily:
+    return add_and_commit(session, models.CharacterFamily(**data))
+
+
+def create_character_cell(session: Session, **data: Any) -> models.CharacterCell:
+    return add_and_commit(session, models.CharacterCell(**data))
+
+
 def create_character_pose(session: Session, **data: Any) -> models.CharacterPose:
     return add_and_commit(session, models.CharacterPose(**data))
 
@@ -193,6 +201,78 @@ def create_prompt_pack(session: Session, **data: Any) -> models.PromptPack:
 
 def create_external_asset(session: Session, **data: Any) -> models.ExternalAsset:
     return add_and_commit(session, models.ExternalAsset(**data))
+
+
+def create_research_run(session: Session, **data: Any) -> models.ResearchRun:
+    return add_and_commit(session, models.ResearchRun(**data))
+
+
+def create_provider_fetch_log(session: Session, **data: Any) -> models.ProviderFetchLog:
+    return add_and_commit(session, models.ProviderFetchLog(**data))
+
+
+def create_trend_item(session: Session, **data: Any) -> models.TrendItem:
+    return add_and_commit(session, models.TrendItem(**data))
+
+
+def create_idea_candidate(session: Session, **data: Any) -> models.IdeaCandidate:
+    return add_and_commit(session, models.IdeaCandidate(**data))
+
+
+def create_creation_inbox_item(session: Session, **data: Any) -> models.CreationInboxItem:
+    return add_and_commit(session, models.CreationInboxItem(**data))
+
+
+def create_deep_research_run(session: Session, **data: Any) -> models.DeepResearchRun:
+    return add_and_commit(session, models.DeepResearchRun(**data))
+
+
+def create_deep_idea_candidate(session: Session, **data: Any) -> models.DeepIdeaCandidate:
+    return add_and_commit(session, models.DeepIdeaCandidate(**data))
+
+
+def create_metadata_recipe_draft(session: Session, **data: Any) -> models.MetadataRecipeDraft:
+    return add_and_commit(session, models.MetadataRecipeDraft(**data))
+
+
+def create_video_project(session: Session, **data: Any) -> models.VideoProject:
+    return add_and_commit(session, models.VideoProject(**data))
+
+
+def create_script_draft(session: Session, **data: Any) -> models.ScriptDraft:
+    return add_and_commit(session, models.ScriptDraft(**data))
+
+
+def create_scene_slot(session: Session, **data: Any) -> models.SceneSlot:
+    return add_and_commit(session, models.SceneSlot(**data))
+
+
+def create_scene_candidate(session: Session, **data: Any) -> models.SceneCandidate:
+    return add_and_commit(session, models.SceneCandidate(**data))
+
+
+def create_selected_scene(session: Session, **data: Any) -> models.SelectedScene:
+    return add_and_commit(session, models.SelectedScene(**data))
+
+
+def create_higgsfield_prompt_pack(session: Session, **data: Any) -> models.HiggsfieldPromptPack:
+    return add_and_commit(session, models.HiggsfieldPromptPack(**data))
+
+
+def create_higgsfield_job(session: Session, **data: Any) -> models.HiggsfieldJob:
+    return add_and_commit(session, models.HiggsfieldJob(**data))
+
+
+def create_generated_clip(session: Session, **data: Any) -> models.GeneratedClip:
+    return add_and_commit(session, models.GeneratedClip(**data))
+
+
+def create_render_job(session: Session, **data: Any) -> models.RenderJob:
+    return add_and_commit(session, models.RenderJob(**data))
+
+
+def create_obsidian_sync_log(session: Session, **data: Any) -> models.ObsidianSyncLog:
+    return add_and_commit(session, models.ObsidianSyncLog(**data))
 
 
 def create_cost_event(session: Session, **data: Any) -> models.CostEvent:

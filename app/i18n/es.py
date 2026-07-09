@@ -5,10 +5,13 @@ from app.core.enums import WizardStep
 APP_NAME = "ShortsFactory"
 
 NAVIGATION = (
+    ("Investigacion", "09_trend_research"),
+    ("Creacion", "16_creation"),
+    ("Ideas", "17_metadata_recipe"),
+    ("Produccion", "18_production"),
     ("Inicio", "home"),
     ("Crear Short paso a paso", "00_wizard"),
-    ("Investigador de tendencias", "09_trend_research"),
-    ("Ideas", "01_topics"),
+    ("Ideas antiguas", "01_topics"),
     ("Ganchos", "02_hooks"),
     ("Guiones", "03_scripts"),
     ("Localización", "10_localization"),
@@ -116,6 +119,21 @@ STATUS_LABELS = {
     "needs_changes": "Necesita cambios",
     "needs_asset": "Necesita asset",
     "mapped": "Mapeada",
+    "created": "Creado",
+    "running": "Ejecutando",
+    "completed": "Completado",
+    "sent_to_creation": "Enviada a creacion",
+    "processed": "Procesada",
+    "metadata_selected": "Metadata elegida",
+    "character_selected": "Personaje elegido",
+    "script_draft": "Guion borrador",
+    "script_approved": "Guion aprobado",
+    "voiceover_generated": "Voz generada",
+    "voiceover_failed": "Voz fallida",
+    "scenes_planned": "Escenas planificadas",
+    "manual_required": "Requiere modo manual",
+    "pending_confirmation": "Pendiente de confirmacion",
+    "registered": "Registrado",
 }
 
 WIZARD_STEP_LABELS = {

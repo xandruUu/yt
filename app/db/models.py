@@ -265,17 +265,26 @@ class VoiceoverJob(TimestampMixin, Base):
     __tablename__ = "voiceover_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int | None] = mapped_column(ForeignKey("video_projects.id"), nullable=True, index=True)
     wizard_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"), nullable=False, index=True)
+    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
+    script_draft_id: Mapped[int | None] = mapped_column(ForeignKey("script_drafts.id"), nullable=True, index=True)
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="placeholder")
     voice_name: Mapped[str | None] = mapped_column(String(160))
     voice_id: Mapped[str | None] = mapped_column(String(160))
+    model_id: Mapped[str | None] = mapped_column(String(160))
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    text_hash: Mapped[str | None] = mapped_column(String(128))
     input_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    output_path: Mapped[str | None] = mapped_column(Text)
     output_audio_path: Mapped[str | None] = mapped_column(Text)
     duration_seconds: Mapped[float | None] = mapped_column(Float)
+    character_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
+    external_request_id: Mapped[str | None] = mapped_column(String(240))
+    cost_event_id: Mapped[int | None] = mapped_column(ForeignKey("cost_events.id"), nullable=True)
     cost_estimate: Mapped[float | None] = mapped_column(Float)
     metadata_json: Mapped[str | None] = mapped_column(Text)
 
@@ -284,7 +293,9 @@ class SubtitleTrack(TimestampMixin, Base):
     __tablename__ = "subtitle_tracks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"), nullable=False, index=True)
+    video_project_id: Mapped[int | None] = mapped_column(ForeignKey("video_projects.id"), nullable=True, index=True)
+    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
+    script_draft_id: Mapped[int | None] = mapped_column(ForeignKey("script_drafts.id"), nullable=True, index=True)
     voiceover_job_id: Mapped[int | None] = mapped_column(ForeignKey("voiceover_jobs.id"), nullable=True)
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     srt_path: Mapped[str | None] = mapped_column(Text)
@@ -307,10 +318,25 @@ class VisualPlan(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="generated")
 
 
+class CharacterFamily(TimestampMixin, Base):
+    __tablename__ = "character_families"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    canonical_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    base_visual_style: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    base_personality: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    global_must_preserve_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    global_must_avoid_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    obsidian_note_path: Mapped[str | None] = mapped_column(Text)
+
+
 class CharacterProfile(TimestampMixin, Base):
     __tablename__ = "character_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    family_id: Mapped[int | None] = mapped_column(ForeignKey("character_families.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(String(240), nullable=False, default="")
@@ -327,6 +353,14 @@ class CharacterProfile(TimestampMixin, Base):
     color_palette_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     proportions_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     reference_image_paths_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    main_image_path: Mapped[str | None] = mapped_column(Text)
+    main_thumbnail_path: Mapped[str | None] = mapped_column(Text)
+    must_preserve_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    must_avoid_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    prompt_fragment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    negative_prompt_fragment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    obsidian_note_path: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="active")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
@@ -358,6 +392,30 @@ class CharacterVariant(TimestampMixin, Base):
     use_cases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     prompt_fragment: Mapped[str] = mapped_column(Text, nullable=False, default="")
     negative_prompt_fragment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class CharacterCell(TimestampMixin, Base):
+    __tablename__ = "character_cells"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    character_profile_id: Mapped[int] = mapped_column(
+        ForeignKey("character_profiles.id"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    slug: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cell_type: Mapped[str] = mapped_column(String(64), nullable=False, default="other")
+    image_path: Mapped[str | None] = mapped_column(Text)
+    thumbnail_path: Mapped[str | None] = mapped_column(Text)
+    prompt_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    mime_type: Mapped[str | None] = mapped_column(String(120))
+    sha256: Mapped[str | None] = mapped_column(String(128))
 
 
 class VisualStoryboard(TimestampMixin, Base):
@@ -491,6 +549,319 @@ class ExternalAsset(TimestampMixin, Base):
     height: Mapped[int | None] = mapped_column(Integer)
     fps: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="needs_license_review")
+
+
+class ResearchRun(TimestampMixin, Base):
+    __tablename__ = "research_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idea_count_requested: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    lookback_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    target_market: Mapped[str] = mapped_column(String(80), nullable=False, default="global")
+    content_language: Mapped[str] = mapped_column(String(32), nullable=False, default="en")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    provider_summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+class ProviderFetchLog(TimestampMixin, Base):
+    __tablename__ = "provider_fetch_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    request_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    response_summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    raw_response_path: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrendItem(TimestampMixin, Base):
+    __tablename__ = "trend_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(240))
+    url: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    author_or_channel: Mapped[str | None] = mapped_column(String(240))
+    views: Mapped[int | None] = mapped_column(Integer)
+    likes: Mapped[int | None] = mapped_column(Integer)
+    comments: Mapped[int | None] = mapped_column(Integer)
+    shares: Mapped[int | None] = mapped_column(Integer)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    language: Mapped[str | None] = mapped_column(String(32))
+    region: Mapped[str | None] = mapped_column(String(80))
+    raw_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    viral_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    velocity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    engagement_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    novelty_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    visual_potential_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    shorts_suitability_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source_reliability_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class IdeaCandidate(TimestampMixin, Base):
+    __tablename__ = "idea_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    short_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    viral_angle: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    why_now: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    visual_potential: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    source_item_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="low")
+    risk_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="suggested")
+
+
+class CreationInboxItem(TimestampMixin, Base):
+    __tablename__ = "creation_inbox_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idea_candidate_id: Mapped[int] = mapped_column(ForeignKey("idea_candidates.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class DeepResearchRun(TimestampMixin, Base):
+    __tablename__ = "deep_research_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idea_candidate_id: Mapped[int] = mapped_column(ForeignKey("idea_candidates.id"), nullable=False, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class DeepIdeaCandidate(TimestampMixin, Base):
+    __tablename__ = "deep_idea_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deep_research_run_id: Mapped[int] = mapped_column(
+        ForeignKey("deep_research_runs.id"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    detailed_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    specific_angle: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    why_it_can_go_viral: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    possible_hook: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    facts_to_verify_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    visual_opportunities_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="low")
+    risk_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="suggested")
+
+
+class MetadataRecipeDraft(TimestampMixin, Base):
+    __tablename__ = "metadata_recipe_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deep_idea_candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("deep_idea_candidates.id"),
+        nullable=False,
+        index=True,
+    )
+    titles_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    hooks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    descriptions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    hashtag_sets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    selected_title: Mapped[str | None] = mapped_column(Text)
+    selected_hook: Mapped[str | None] = mapped_column(Text)
+    selected_description: Mapped[str | None] = mapped_column(Text)
+    selected_hashtags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="draft")
+
+
+class VideoProject(TimestampMixin, Base):
+    __tablename__ = "video_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deep_idea_candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("deep_idea_candidates.id"),
+        nullable=True,
+        index=True,
+    )
+    metadata_recipe_id: Mapped[int | None] = mapped_column(
+        ForeignKey("metadata_recipe_drafts.id"),
+        nullable=True,
+        index=True,
+    )
+    character_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("character_profiles.id"),
+        nullable=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    hashtags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    hook: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_language: Mapped[str] = mapped_column(String(32), nullable=False, default="en")
+    ui_language: Mapped[str] = mapped_column(String(32), nullable=False, default="es")
+    target_market: Mapped[str] = mapped_column(String(80), nullable=False, default="global")
+    target_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="metadata_selected")
+
+
+class ScriptDraft(TimestampMixin, Base):
+    __tablename__ = "script_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="en")
+    voiceover_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    estimated_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    beats_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    fact_check_notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    risk_notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="script_draft")
+
+
+class SceneSlot(TimestampMixin, Base):
+    __tablename__ = "scene_slots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    slot_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot_type: Mapped[str] = mapped_column(String(80), nullable=False, default="scene")
+    target_start_second: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    target_end_second: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    voiceover_segment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class SceneCandidate(TimestampMixin, Base):
+    __tablename__ = "scene_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scene_slot_id: Mapped[int] = mapped_column(ForeignKey("scene_slots.id"), nullable=False, index=True)
+    option_code: Mapped[str] = mapped_column(String(24), nullable=False)
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    visual_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    character_action: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    camera_movement: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    setting: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    continuity_in: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    continuity_out: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    compatible_next_states_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    required_character_cell_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="suggested")
+
+
+class SelectedScene(TimestampMixin, Base):
+    __tablename__ = "selected_scenes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    scene_slot_id: Mapped[int] = mapped_column(ForeignKey("scene_slots.id"), nullable=False, index=True)
+    scene_candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("scene_candidates.id"),
+        nullable=False,
+        index=True,
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="selected")
+
+
+class HiggsfieldPromptPack(TimestampMixin, Base):
+    __tablename__ = "higgsfield_prompt_packs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    negative_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reference_images_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    camera_movement: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    style_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    consistency_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    aspect_ratio: Mapped[str] = mapped_column(String(32), nullable=False, default="9:16")
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="generated")
+
+
+class HiggsfieldJob(TimestampMixin, Base):
+    __tablename__ = "higgsfield_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
+    prompt_pack_id: Mapped[int] = mapped_column(
+        ForeignKey("higgsfield_prompt_packs.id"),
+        nullable=False,
+        index=True,
+    )
+    automation_mode: Mapped[str] = mapped_column(String(48), nullable=False, default="manual")
+    external_job_id: Mapped[str | None] = mapped_column(String(240))
+    submitted_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    raw_output_path: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    estimated_credits: Mapped[float | None] = mapped_column(Float)
+    actual_credits: Mapped[float | None] = mapped_column(Float)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GeneratedClip(TimestampMixin, Base):
+    __tablename__ = "generated_clips"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
+    higgsfield_job_id: Mapped[int | None] = mapped_column(ForeignKey("higgsfield_jobs.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    thumbnail_path: Mapped[str | None] = mapped_column(Text)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    fps: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="registered")
+
+
+class RenderJob(TimestampMixin, Base):
+    __tablename__ = "render_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    output_path: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int] = mapped_column(Integer, nullable=False, default=1080)
+    height: Mapped[int] = mapped_column(Integer, nullable=False, default=1920)
+    fps: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ObsidianSyncLog(TimestampMixin, Base):
+    __tablename__ = "obsidian_sync_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    note_path: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
+    error_message: Mapped[str | None] = mapped_column(Text)
 
 
 class CostEvent(Base):

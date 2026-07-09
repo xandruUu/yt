@@ -13,6 +13,7 @@ except ImportError as exc:  # pragma: no cover - shown in UI when deps are missi
     ) from exc
 
 from app.db.models import Base
+from app.db.schema import ensure_runtime_schema
 
 settings = get_settings()
 settings.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,6 +30,7 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, futu
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -41,4 +43,3 @@ def get_session() -> Generator[Session, None, None]:
 
 def new_session() -> Session:
     return SessionLocal()
-

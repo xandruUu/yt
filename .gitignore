@@ -12,11 +12,17 @@ data/*.db
 data/*.db-*
 outputs/*
 !outputs/README.md
+exports/*
+!exports/README.md
+external_outputs/*
 assets/backgrounds/*
 assets/music/*
 assets/fonts/*
 assets/images/*
 assets/sfx/*
+assets/characters/*
+assets/voiceovers/*
+assets/higgsfield_clips/*
 !assets/backgrounds/README.md
 !assets/music/README.md
 !assets/fonts/README.md

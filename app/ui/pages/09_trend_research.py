@@ -1,247 +1,128 @@
 from __future__ import annotations
 
+import json
+
 import streamlit as st
 from sqlalchemy import select
 
-from app.core.enums import GeneratedIdeaStatus
 from app.db import models
 from app.db.database import new_session
-from app.i18n.es import CATEGORY_LABELS, LANGUAGE_LABELS_ES, MARKET_LABELS, label_for
-from app.providers.base import TrendItem
-from app.services.idea_generation_service import (
-    convert_generated_idea_to_topic,
-    generate_ideas_from_trends,
-    persist_generated_ideas,
-)
-from app.services.trend_research_service import TrendResearchService
-from app.ui.components.generated_idea_cards import generated_idea_card_data
+from app.services.pipeline_service import run_general_research, send_idea_to_creation
 
 
 def render() -> None:
-    st.title("Investigador de tendencias")
-    st.caption("Busca señales con modo manual, RSS, Hacker News y proveedores opcionales.")
-
+    st.title("Investigacion")
+    st.caption("Busca viralidad general sin selector de categoria. La UI esta en espanol; las ideas salen en ingles.")
     _research_panel()
     st.divider()
-    _results_panel()
-    st.divider()
-    _generated_ideas_panel()
-    st.divider()
-    _providers_panel()
+    _latest_research_panel()
 
 
 def _research_panel() -> None:
-    col1, col2, col3, col4 = st.columns(4)
-    language = col1.selectbox(
-        "Idioma objetivo",
-        ["en", "es", "hi_hinglish"],
-        format_func=lambda value: label_for(LANGUAGE_LABELS_ES, value),
-    )
-    market = col2.selectbox(
-        "Mercado",
-        ["global", "us", "spain", "latam", "india"],
-        format_func=lambda value: label_for(MARKET_LABELS, value),
-    )
-    category = col3.selectbox(
-        "Categoría",
-        list(CATEGORY_LABELS),
-        format_func=lambda value: label_for(CATEGORY_LABELS, value),
-    )
-    limit = col4.number_input("Ideas", min_value=3, max_value=25, value=8)
-
-    providers = st.multiselect(
-        "Fuentes",
-        ["manual", "rss", "hackernews", "youtube"],
-        default=["manual"],
-        format_func=_provider_label,
-    )
-    query = st.text_input("Query opcional")
-    raw_input = st.text_area(
-        "Pega URLs, titulares, temas o texto libre",
-        height=180,
-        placeholder="Una línea por señal de tendencia...",
-    )
-    if st.button("Investigar ideas", type="primary"):
-        service = TrendResearchService()
-        result = service.research(
-            providers=providers,
-            query=query or None,
-            market=market,
-            language=language,
-            category=category,
-            limit=int(limit),
-            manual_input=raw_input,
-        )
-        st.session_state["trend_research_result"] = {
-            "items": [item.model_dump(mode="json") for item in result.items],
-            "warnings": result.warnings,
-            "providers_used": result.providers_used,
-        }
-        st.success(f"Investigación completada: {len(result.items)} tendencias.")
-
-
-def _results_panel() -> None:
-    result = st.session_state.get("trend_research_result")
-    if not result:
-        st.info("Todavía no hay tendencias investigadas en esta sesión.")
-        return
-    warnings = result.get("warnings", [])
-    for warning in warnings:
-        st.warning(warning)
-    items = [TrendItem(**item) for item in result.get("items", [])]
-    if not items:
-        st.warning("No se encontraron tendencias.")
-        return
-    st.subheader("Tendencias detectadas")
-    st.dataframe(_rows(items), use_container_width=True, hide_index=True)
-    selected_titles = st.multiselect(
-        "Tendencias para generar ideas",
-        [item.title for item in items],
-        default=[items[0].title] if items else [],
-    )
-    selected_items = [item for item in items if item.title in selected_titles]
-    ideas_per_trend = st.slider("Ideas por tendencia", min_value=1, max_value=5, value=3)
-    if st.button("Generar ideas desde tendencias seleccionadas", type="primary"):
-        if not selected_items:
-            st.error("Selecciona al menos una tendencia.")
-            return
-        first = selected_items[0]
-        ideas = generate_ideas_from_trends(
-            selected_items,
-            target_language=first.language or "es",
-            target_market=first.market or "global",
-            category=first.category or "other",
-            ideas_per_trend=ideas_per_trend,
-        )
-        with new_session() as session:
-            saved = persist_generated_ideas(session, ideas)
-        st.success(f"Se generaron {len(saved)} ideas originales.")
-
-    with st.expander("Ver detalle de tendencias"):
-        selected = st.selectbox("Detalle", [item.title for item in items])
-        item = next(item for item in items if item.title == selected)
-        st.json(item.model_dump(mode="json"), expanded=False)
-
-
-def _generated_ideas_panel() -> None:
-    with new_session() as session:
-        ideas = session.scalars(
-            select(models.GeneratedIdea).order_by(
-                models.GeneratedIdea.total_score.desc(),
-                models.GeneratedIdea.created_at.desc(),
+    with st.form("general_research_form"):
+        idea_count = st.slider("Cantidad de ideas a generar", min_value=1, max_value=15, value=5)
+        with st.expander("Opciones avanzadas", expanded=False):
+            col1, col2 = st.columns(2)
+            market = col1.selectbox("Mercado", ["global", "us", "uk", "es"], index=0)
+            lookback = col2.selectbox("Lookback", [7, 14, 30], index=2, format_func=lambda value: f"Ultimos {value} dias")
+            include_youtube = st.checkbox("Incluir YouTube si hay credenciales", value=False)
+            include_rss = st.checkbox("Incluir RSS/noticias", value=True)
+            include_hackernews = st.checkbox("Incluir Hacker News", value=True)
+            manual_input = st.text_area(
+                "Senales manuales opcionales",
+                height=120,
+                placeholder="Pega titulares, URLs o temas. Si lo dejas vacio uso senales semilla.",
             )
-        ).all()
-        if not ideas:
-            st.info("Todavía no hay ideas generadas.")
-            return
-        st.subheader("Ideas originales generadas")
-        for idea in ideas:
-            _render_generated_idea_card(session, idea, key_prefix="research")
-
-
-def _render_generated_idea_card(session, idea: models.GeneratedIdea, key_prefix: str) -> None:
-    data = generated_idea_card_data(idea)
-    edit_key = f"{key_prefix}_editing_{idea.id}"
-    with st.container(border=True):
-        st.markdown(f"**{data['titulo']}**")
-        st.caption(f"{data['estado']} | Score {data['score']} ({data['score_badge']})")
-        st.write(idea.summary)
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Viralidad", idea.viral_score)
-        col2.metric("RPM", idea.rpm_score)
-        col3.metric("Evergreen", idea.evergreen_score)
-        col4.metric("Riesgo copyright", idea.copyright_risk)
-        col5.metric("Riesgo monetización", idea.monetization_risk)
-        with st.expander("Detalles"):
-            st.write(f"Ángulo: {idea.angle}")
-            st.write(f"Por qué puede funcionar: {idea.why_it_can_work}")
-            st.write(f"Duración sugerida: {idea.suggested_duration}")
-            st.write(f"Formato: {idea.suggested_format}")
-            st.write(f"Hook sugerido: {idea.suggested_hook_type}")
-            st.write(f"Visual sugerido: {idea.suggested_visual}")
-            st.write(f"PÃºblico objetivo: {idea.target_audience or 'No definido'}")
-            st.write(f"Fuentes: {idea.sources_json or '[]'}")
-        actions = st.columns(5)
-        select_clicked = actions[0].button("Elegir idea", key=f"{key_prefix}_select_{idea.id}")
-        if select_clicked and idea.status == GeneratedIdeaStatus.DISCARDED.value:
-            st.error("No puedes elegir una idea descartada.")
-        elif select_clicked:
-            idea.status = GeneratedIdeaStatus.SELECTED.value
-            session.commit()
-            st.session_state["wizard_selected_generated_idea_id"] = idea.id
-            st.success("Idea elegida.")
-            st.rerun()
-        if actions[1].button("Guardar para después", key=f"{key_prefix}_save_{idea.id}"):
-            idea.status = GeneratedIdeaStatus.SAVED_FOR_LATER.value
-            session.commit()
-            st.rerun()
-        if actions[2].button("Descartar", key=f"{key_prefix}_discard_{idea.id}"):
-            idea.status = GeneratedIdeaStatus.DISCARDED.value
-            session.commit()
-            st.rerun()
-        if actions[3].button("Convertir en idea principal", key=f"{key_prefix}_topic_{idea.id}"):
-            topic = convert_generated_idea_to_topic(session, idea)
-            st.session_state["wizard_selected_topic_id"] = topic.id
-            st.success(f"Convertida en idea principal #{topic.id}.")
-            st.rerun()
-        if actions[4].button("Editar", key=f"{key_prefix}_edit_{idea.id}"):
-            st.session_state[edit_key] = not st.session_state.get(edit_key, False)
-            st.rerun()
-        if st.session_state.get(edit_key, False):
-            _render_generated_idea_edit_form(session, idea, key_prefix)
-
-
-def _render_generated_idea_edit_form(session, idea: models.GeneratedIdea, key_prefix: str) -> None:
-    with st.form(f"{key_prefix}_edit_form_{idea.id}"):
-        title = st.text_input("TÃ­tulo", value=idea.title)
-        angle = st.text_area("Ãngulo", value=idea.angle)
-        summary = st.text_area("Resumen", value=idea.summary)
-        why_it_can_work = st.text_area("Por quÃ© puede funcionar", value=idea.why_it_can_work)
-        submitted = st.form_submit_button("Guardar cambios")
+        submitted = st.form_submit_button("Investigar viralidad general", type="primary")
         if submitted:
-            if not title.strip():
-                st.error("La idea necesita un tÃ­tulo.")
-                return
-            idea.title = title.strip()
-            idea.angle = angle.strip()
-            idea.summary = summary.strip()
-            idea.why_it_can_work = why_it_can_work.strip()
-            session.commit()
-            st.success("Idea actualizada.")
+            with new_session() as session:
+                result = run_general_research(
+                    session,
+                    idea_count=int(idea_count),
+                    market=market,
+                    lookback_days=int(lookback),
+                    include_youtube=include_youtube,
+                    include_rss=include_rss,
+                    include_hackernews=include_hackernews,
+                    manual_input=manual_input,
+                )
+                st.session_state["latest_research_run_id"] = result.research_run.id
+                st.success(f"Investigacion completada: {len(result.ideas)} ideas nuevas.")
+                for warning in result.warnings:
+                    st.warning(warning)
+
+
+def _latest_research_panel() -> None:
+    with new_session() as session:
+        runs = list(
+            session.scalars(select(models.ResearchRun).order_by(models.ResearchRun.created_at.desc()).limit(10)).all()
+        )
+        if not runs:
+            st.info("Todavia no hay investigaciones guardadas.")
+            return
+        selected_run_id = st.selectbox(
+            "Investigaciones recientes",
+            [run.id for run in runs],
+            format_func=lambda run_id: _run_label(next(run for run in runs if run.id == run_id)),
+        )
+        run = session.get(models.ResearchRun, int(selected_run_id))
+        if run is None:
+            return
+        _run_metrics(run)
+        ideas = list(
+            session.scalars(
+                select(models.IdeaCandidate)
+                .where(models.IdeaCandidate.research_run_id == run.id)
+                .order_by(models.IdeaCandidate.created_at.desc())
+            ).all()
+        )
+        if not ideas:
+            st.warning("Esta investigacion no tiene ideas.")
+            return
+        st.subheader("Ideas candidatas")
+        for idea in ideas:
+            _idea_card(session, idea)
+
+
+def _run_metrics(run: models.ResearchRun) -> None:
+    summary = _json_loads(run.provider_summary_json)
+    cols = st.columns(4)
+    cols[0].metric("Ideas pedidas", run.idea_count_requested)
+    cols[1].metric("Lookback", f"{run.lookback_days} dias")
+    cols[2].metric("Mercado", run.target_market)
+    cols[3].metric("Estado", run.status)
+    with st.expander("Resumen tecnico", expanded=False):
+        st.json(summary)
+
+
+def _idea_card(session, idea: models.IdeaCandidate) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{idea.title}**")
+        st.caption(f"Estado: {idea.status} | Riesgo: {idea.risk_level} | {idea.estimated_duration_seconds}s")
+        st.write(idea.short_description)
+        st.write(f"**Viral angle:** {idea.viral_angle}")
+        st.write(f"**Why now:** {idea.why_now}")
+        st.write(f"**Visual potential:** {idea.visual_potential}")
+        with st.expander("Fuentes y riesgo"):
+            st.json(
+                {
+                    "source_item_ids": _json_loads(idea.source_item_ids_json),
+                    "risk_notes": idea.risk_notes,
+                }
+            )
+        disabled = idea.status == "sent_to_creation"
+        if st.button("Enviar a Creacion", key=f"send_idea_{idea.id}", disabled=disabled):
+            send_idea_to_creation(session, idea.id)
+            st.success("Idea enviada a Creacion.")
             st.rerun()
 
 
-def _providers_panel() -> None:
-    rows = [
-        {"proveedor": "YouTube Data API", "estado": "Opcional", "notas": "Requiere API key gratuita."},
-        {"proveedor": "RSS", "estado": "Siguiente iteración", "notas": "Feeds públicos configurables."},
-        {"proveedor": "Hacker News", "estado": "Siguiente iteración", "notas": "API pública gratuita."},
-        {"proveedor": "Google Trends", "estado": "Opcional", "notas": "pytrends no oficial, puede fallar."},
-        {"proveedor": "Reddit API", "estado": "Opcional", "notas": "Solo API oficial, sin copiar posts."},
-        {"proveedor": "Manual", "estado": "Disponible", "notas": "Fallback sin API keys."},
-    ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+def _run_label(run: models.ResearchRun) -> str:
+    return f"#{run.id} | {run.status} | {run.idea_count_requested} ideas | {run.created_at:%Y-%m-%d %H:%M}"
 
 
-def _rows(items: list[TrendItem]) -> list[dict[str, object]]:
-    return [
-        {
-            "título": item.title,
-            "fuente": item.source,
-            "categoría": label_for(CATEGORY_LABELS, item.category),
-            "idioma": label_for(LANGUAGE_LABELS_ES, item.language),
-            "mercado": label_for(MARKET_LABELS, item.market),
-            "url": item.source_url,
-            "señales": item.popularity_signals,
-        }
-        for item in items
-    ]
-
-
-def _provider_label(provider: str) -> str:
-    return {
-        "manual": "Manual",
-        "rss": "RSS",
-        "hackernews": "Hacker News",
-        "youtube": "YouTube Data API",
-    }.get(provider, provider)
+def _json_loads(value: str | None):
+    try:
+        return json.loads(value or "{}")
+    except json.JSONDecodeError:
+        return {}

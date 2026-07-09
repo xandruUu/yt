@@ -145,25 +145,64 @@ DEFAULT_VARIANTS = [
     },
 ]
 
+DEFAULT_CELLS = [
+    {
+        "title": "Nero Front",
+        "slug": "nero_front",
+        "description": "Nero seen from the front, full body, neutral friendly expression.",
+        "cell_type": "front",
+        "prompt_notes": "Use this cell as the main identity and proportion reference.",
+        "is_primary": True,
+        "sort_order": 10,
+    },
+    {
+        "title": "Nero Three Quarter",
+        "slug": "nero_three_quarter",
+        "description": "Nero in a three-quarter view, expressive and ready to explain a fact.",
+        "cell_type": "three_quarter",
+        "prompt_notes": "Use for dynamic scenes where Nero points at a clue or visual reveal.",
+        "is_primary": False,
+        "sort_order": 20,
+    },
+    {
+        "title": "Nero Surprised",
+        "slug": "nero_surprised",
+        "description": "Nero with raised eyebrows and a surprised curiosity expression.",
+        "cell_type": "expression",
+        "prompt_notes": "Use for hooks, reveals and high-retention moments.",
+        "is_primary": False,
+        "sort_order": 30,
+    },
+]
+
 
 def seed_nero_character_system(session: Session) -> models.CharacterProfile:
+    family = _seed_nero_family(session)
     character = get_character_by_slug(session, NERO_SLUG)
     if character is None:
-        character = models.CharacterProfile(**nero_profile_payload())
+        character = models.CharacterProfile(**nero_profile_payload(family_id=family.id))
         session.add(character)
         session.commit()
         session.refresh(character)
     else:
+        character.family_id = character.family_id or family.id
         character.is_default = True
+        character.must_preserve_json = character.must_preserve_json or character.required_traits_json
+        character.must_avoid_json = character.must_avoid_json or character.forbidden_traits_json
+        character.prompt_fragment = character.prompt_fragment or character.master_prompt
+        character.negative_prompt_fragment = character.negative_prompt_fragment or character.negative_prompt
+        character.status = character.status or "active"
         add_and_commit(session, character)
 
     _seed_poses(session, character)
     _seed_variants(session, character)
+    _seed_cells(session, character)
     return character
 
 
-def nero_profile_payload() -> dict[str, Any]:
+def nero_profile_payload(family_id: int | None = None) -> dict[str, Any]:
     return {
+        "family_id": family_id,
         "name": "Nero",
         "slug": NERO_SLUG,
         "role": "Host, narrator and mascot of Daily Brain Break.",
@@ -177,6 +216,11 @@ def nero_profile_payload() -> dict[str, Any]:
         "default_outfit": "Red shorts, black belt with silver buckle, red-and-white sneakers.",
         "required_traits_json": json.dumps(NERO_REQUIRED_TRAITS, ensure_ascii=False),
         "forbidden_traits_json": json.dumps(NERO_FORBIDDEN_TRAITS, ensure_ascii=False),
+        "must_preserve_json": json.dumps(NERO_REQUIRED_TRAITS, ensure_ascii=False),
+        "must_avoid_json": json.dumps(NERO_FORBIDDEN_TRAITS, ensure_ascii=False),
+        "prompt_fragment": NERO_MASTER_PROMPT,
+        "negative_prompt_fragment": NERO_NEGATIVE_PROMPT,
+        "status": "active",
         "color_palette_json": json.dumps(
             {
                 "brain_pink": "#f58bc4",
@@ -231,13 +275,25 @@ def list_character_variants(session: Session, character_id: int) -> list[models.
     )
 
 
+def list_character_cells(session: Session, character_id: int) -> list[models.CharacterCell]:
+    return list(
+        session.scalars(
+            select(models.CharacterCell)
+            .where(models.CharacterCell.character_profile_id == character_id)
+            .order_by(models.CharacterCell.sort_order, models.CharacterCell.title)
+        ).all()
+    )
+
+
 def character_bible_markdown(
     character: models.CharacterProfile,
     poses: list[models.CharacterPose] | None = None,
     variants: list[models.CharacterVariant] | None = None,
+    cells: list[models.CharacterCell] | None = None,
 ) -> str:
     poses = poses or []
     variants = variants or []
+    cells = cells or []
     required = _json_list(character.required_traits_json)
     forbidden = _json_list(character.forbidden_traits_json)
     pose_lines = "\n".join(f"- {pose.name}: {pose.description}" for pose in poses) or "- No poses saved yet."
@@ -245,6 +301,7 @@ def character_bible_markdown(
         f"- {variant.name}: {variant.description}. Outfit: {variant.outfit_description}"
         for variant in variants
     ) or "- No variants saved yet."
+    cell_lines = "\n\n".join(_cell_markdown(cell) for cell in cells) or "- No visual cells saved yet."
     return f"""# Character Bible: {character.name}
 
 ## Channel
@@ -285,6 +342,9 @@ Daily Brain Break
 
 ## Variants
 {variant_lines}
+
+## Visual Cells
+{cell_lines}
 """
 
 
@@ -303,6 +363,7 @@ def export_character_bible_markdown(
         character,
         poses=list_character_poses(session, character.id),
         variants=list_character_variants(session, character.id),
+        cells=list_character_cells(session, character.id),
     )
     return write_text_file(path, content, overwrite=overwrite)
 
@@ -353,6 +414,48 @@ def _seed_variants(session: Session, character: models.CharacterProfile) -> None
             )
         )
     session.commit()
+
+
+def _seed_nero_family(session: Session) -> models.CharacterFamily:
+    family = session.scalar(select(models.CharacterFamily).where(models.CharacterFamily.slug == "nero"))
+    payload = {
+        "name": "Nero",
+        "slug": "nero",
+        "canonical_description": NERO_CANONICAL_DESCRIPTION,
+        "base_visual_style": "Polished friendly cartoon brain mascot for vertical educational Shorts.",
+        "base_personality": "Curious, funny, clear and educational.",
+        "global_must_preserve_json": json.dumps(NERO_REQUIRED_TRAITS, ensure_ascii=False),
+        "global_must_avoid_json": json.dumps(NERO_FORBIDDEN_TRAITS, ensure_ascii=False),
+    }
+    if family is None:
+        return add_and_commit(session, models.CharacterFamily(**payload))
+    for key, value in payload.items():
+        setattr(family, key, value)
+    return add_and_commit(session, family)
+
+
+def _seed_cells(session: Session, character: models.CharacterProfile) -> None:
+    existing = {
+        cell.slug
+        for cell in session.scalars(
+            select(models.CharacterCell).where(models.CharacterCell.character_profile_id == character.id)
+        ).all()
+    }
+    for payload in DEFAULT_CELLS:
+        if payload["slug"] in existing:
+            continue
+        session.add(models.CharacterCell(character_profile_id=character.id, **payload))
+    session.commit()
+
+
+def _cell_markdown(cell: models.CharacterCell) -> str:
+    image_line = f"\nImage: {cell.image_path}" if cell.image_path else ""
+    return (
+        f"### {cell.title}\n"
+        f"Type: {cell.cell_type}{image_line}\n"
+        f"Description: {cell.description}\n"
+        f"Prompt notes: {cell.prompt_notes}"
+    )
 
 
 def _json_list(value: str | None) -> list[str]:

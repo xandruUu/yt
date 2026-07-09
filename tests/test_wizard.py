@@ -30,8 +30,10 @@ class WizardTests(unittest.TestCase):
 
     def test_spanish_navigation_contains_guided_flow(self) -> None:
         labels = [label for label, _module in NAVIGATION]
+        self.assertEqual(labels[0], "Investigacion")
         self.assertIn("Crear Short paso a paso", labels)
-        self.assertIn("Investigador de tendencias", labels)
+        self.assertIn("Creacion", labels)
+        self.assertIn("Produccion", labels)
         self.assertIn("Personajes", labels)
         self.assertIn("Storyboard Nero", labels)
         self.assertEqual(WIZARD_STEP_LABELS[WizardStep.RESEARCH], "Investigar")
