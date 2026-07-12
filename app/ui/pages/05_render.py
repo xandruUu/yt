@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config.settings import get_settings
 from app.core.enums import RenderStatus, ScriptStatus
@@ -21,6 +21,7 @@ def render() -> None:
         return
 
     settings = get_settings()
+    _render_canonical_clip_guard()
     template_name = st.selectbox("Plantilla", list(TEMPLATES))
     channel_id = _select_channel()
     st.subheader("Estructura previa")
@@ -77,7 +78,10 @@ def _select_approved_script() -> dict[str, object] | None:
         ).all()
         if not scripts:
             return None
-        options = {f"#{script.id} {script.topic.title} [{script.language}]": script.id for script in scripts}
+        options = {
+            f"#{script.id} {script.topic.title} [{script.language}]": script.id
+            for script in scripts
+        }
         selected = st.selectbox("Guion aprobado", list(options))
         script = session.get(models.Script, options[selected])
         return {
@@ -110,7 +114,9 @@ def _select_channel() -> int | None:
 def _render_table() -> None:
     st.subheader("Renders")
     with new_session() as session:
-        renders = session.scalars(select(models.Render).order_by(models.Render.created_at.desc())).all()
+        renders = session.scalars(
+            select(models.Render).order_by(models.Render.created_at.desc())
+        ).all()
         rows = [
             {
                 "id": item.id,
@@ -125,3 +131,50 @@ def _render_table() -> None:
         ]
     if rows:
         st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_canonical_clip_guard() -> None:
+    with new_session() as session:
+        project = session.scalar(
+            select(models.VideoProject).order_by(models.VideoProject.created_at.desc())
+        )
+        if project is None:
+            st.warning(
+                "Este render pertenece al flujo legacy y puede usar visuales fallback/placeholder. "
+                "No debe considerarse render final de produccion sin clips reales mapeados."
+            )
+            return
+
+        selected_scene_ids = list(
+            session.scalars(
+                select(models.SelectedScene.id)
+                .where(models.SelectedScene.video_project_id == project.id)
+                .order_by(models.SelectedScene.sort_order)
+            ).all()
+        )
+        if not selected_scene_ids:
+            st.warning(
+                f"Proyecto canonico #{project.id}: no hay escenas seleccionadas. "
+                "El render actual usara fallback/placeholder si continuas."
+            )
+            return
+
+        mapped_count = (
+            session.scalar(
+                select(func.count(func.distinct(models.GeneratedClip.selected_scene_id))).where(
+                    models.GeneratedClip.selected_scene_id.in_(selected_scene_ids),
+                    models.GeneratedClip.status != "discarded",
+                )
+            )
+            or 0
+        )
+        missing_count = max(0, len(selected_scene_ids) - int(mapped_count))
+        if missing_count:
+            st.warning(
+                f"Proyecto canonico #{project.id}: faltan clips reales en "
+                f"{missing_count}/{len(selected_scene_ids)} escenas. "
+                "El render usara fallback/placeholder y no es final."
+            )
+            return
+
+        st.success(f"Proyecto canonico #{project.id}: todas las escenas tienen clips registrados.")

@@ -12,15 +12,17 @@ except ImportError as exc:  # pragma: no cover - visible only without UI deps.
         "python -m pip install -r requirements.txt"
     ) from exc
 
+from app.config.settings import get_settings
 from app.db import models
 from app.db.database import init_db, new_session
 from app.db.seed import seed_defaults
 from app.i18n.es import (
     APP_NAME,
+    CANONICAL_NAVIGATION,
     CATEGORY_LABELS,
     LANGUAGE_LABELS_ES,
+    LEGACY_NAVIGATION,
     MARKET_LABELS,
-    NAVIGATION,
     STATUS_LABELS,
     label_for,
 )
@@ -32,25 +34,27 @@ class Page:
     module: str
 
 
-PAGES = (
-    *(Page(label, module) for label, module in NAVIGATION),
-)
+MAIN_PAGES = tuple(Page(label, module) for label, module in CANONICAL_NAVIGATION)
+LEGACY_PAGES = tuple(Page(label, module) for label, module in LEGACY_NAVIGATION)
+PAGES = MAIN_PAGES
+
+
+def build_pages(show_legacy_modules: bool | None = None) -> tuple[Page, ...]:
+    if show_legacy_modules is None:
+        show_legacy_modules = get_settings().show_legacy_modules
+    return MAIN_PAGES + (LEGACY_PAGES if show_legacy_modules else ())
 
 
 def render_dashboard() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="SF", layout="wide")
+    settings = get_settings()
     init_db()
     with new_session() as session:
         seed_defaults(session)
 
     st.sidebar.title(APP_NAME)
-    st.sidebar.caption("Asistente de producción de Shorts")
-    selected_label = st.sidebar.radio(
-        "Navegación",
-        [page.label for page in PAGES],
-        label_visibility="collapsed",
-    )
-    selected_page = next(page for page in PAGES if page.label == selected_label)
+    st.sidebar.caption("Asistente de produccion de Shorts")
+    selected_page = _select_page(settings.show_legacy_modules)
 
     if selected_page.module == "home":
         render_home()
@@ -60,9 +64,28 @@ def render_dashboard() -> None:
     module.render()
 
 
+def _select_page(show_legacy_modules: bool) -> Page:
+    selected_label = st.sidebar.radio(
+        "Flujo principal",
+        [page.label for page in MAIN_PAGES],
+        label_visibility="collapsed",
+    )
+    selected_page = next(page for page in MAIN_PAGES if page.label == selected_label)
+
+    if show_legacy_modules:
+        st.sidebar.divider()
+        st.sidebar.caption("Legacy / Avanzado")
+        legacy_labels = ["No abrir legacy", *[page.label for page in LEGACY_PAGES]]
+        selected_legacy_label = st.sidebar.selectbox("Modulo legacy", legacy_labels)
+        if selected_legacy_label != "No abrir legacy":
+            return next(page for page in LEGACY_PAGES if page.label == selected_legacy_label)
+
+    return selected_page
+
+
 def render_home() -> None:
     st.title("Inicio")
-    st.caption("Vista rápida del estado de producción y accesos para crear Shorts paso a paso.")
+    st.caption("Vista rapida del estado de produccion y del flujo canonico de ShortsFactory.")
     filters = _render_filters()
     metrics = _load_metrics(filters)
 
@@ -71,15 +94,15 @@ def render_home() -> None:
     columns[1].metric("Ganchos", metrics["hooks"])
     columns[2].metric("Guiones", metrics["scripts"])
     columns[3].metric("Renders", metrics["renders"])
-    columns[4].metric("Pendientes de revisión", metrics["review_pending"])
+    columns[4].metric("Pendientes de revision", metrics["review_pending"])
     columns[5].metric("Aprobados", metrics["approved"])
     columns[6].metric("Exportados", metrics["exported"])
 
-    st.subheader("Atajos")
+    st.subheader("Flujo canonico")
     quick_cols = st.columns(3)
-    quick_cols[0].info("Usa Crear Short paso a paso para seguir la receta completa.")
-    quick_cols[1].info("Usa Investigador de tendencias para preparar ideas nuevas.")
-    quick_cols[2].info("Usa Revisión antes de exportar cualquier vídeo.")
+    quick_cols[0].info("Investigacion -> Creacion -> Ideas")
+    quick_cols[1].info("Produccion -> Mapeo de clips -> Renderizar")
+    quick_cols[2].info("Revision -> Exportaciones")
 
     st.subheader("Tablero de ideas")
     rows = _load_topic_rows(filters)
@@ -105,7 +128,9 @@ def _render_filters() -> dict[str, str]:
         language = col1.selectbox(
             "Idioma",
             language_options,
-            format_func=lambda value: "Todos" if value == "all" else label_for(LANGUAGE_LABELS_ES, value),
+            format_func=lambda value: (
+                "Todos" if value == "all" else label_for(LANGUAGE_LABELS_ES, value)
+            ),
         )
         category_options = [
             "all",
@@ -125,13 +150,17 @@ def _render_filters() -> dict[str, str]:
         category = col2.selectbox(
             "Categoría",
             category_options,
-            format_func=lambda value: "Todas" if value == "all" else label_for(CATEGORY_LABELS, value),
+            format_func=lambda value: (
+                "Todas" if value == "all" else label_for(CATEGORY_LABELS, value)
+            ),
         )
         status_options = ["all", "idea", "approved_for_hooks", "rejected", "archived"]
         status = col3.selectbox(
             "Estado",
             status_options,
-            format_func=lambda value: "Todos" if value == "all" else label_for(STATUS_LABELS, value),
+            format_func=lambda value: (
+                "Todos" if value == "all" else label_for(STATUS_LABELS, value)
+            ),
         )
     return {"language": language, "category": category, "status": status}
 

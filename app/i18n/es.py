@@ -4,28 +4,33 @@ from app.core.enums import WizardStep
 
 APP_NAME = "ShortsFactory"
 
-NAVIGATION = (
+CANONICAL_NAVIGATION = (
+    ("Inicio", "home"),
     ("Investigacion", "09_trend_research"),
     ("Creacion", "16_creation"),
     ("Ideas", "17_metadata_recipe"),
     ("Produccion", "18_production"),
-    ("Inicio", "home"),
+    ("Personajes", "13_characters"),
+    ("Mapeo de clips", "15_scene_mapping"),
+    ("Renderizar", "05_render"),
+    ("Revision", "06_review"),
+    ("Exportaciones", "07_exports"),
+    ("Configuracion", "08_settings"),
+)
+
+LEGACY_NAVIGATION = (
     ("Crear Short paso a paso", "00_wizard"),
     ("Ideas antiguas", "01_topics"),
     ("Ganchos", "02_hooks"),
     ("Guiones", "03_scripts"),
-    ("Localización", "10_localization"),
-    ("Personajes", "13_characters"),
+    ("Localizacion", "10_localization"),
     ("Storyboard Nero", "14_storyboard"),
     ("Voces", "11_voiceover"),
     ("Herramientas externas", "12_external_tools"),
-    ("Música y recursos", "04_assets_music"),
-    ("Mapeo de clips", "15_scene_mapping"),
-    ("Renderizar", "05_render"),
-    ("Revisión", "06_review"),
-    ("Exportaciones", "07_exports"),
-    ("Configuración", "08_settings"),
+    ("Musica y recursos", "04_assets_music"),
 )
+
+NAVIGATION = CANONICAL_NAVIGATION
 
 COMMON = {
     "all": "Todo",

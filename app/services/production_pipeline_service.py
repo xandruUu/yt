@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.llm_gateway import LLMGateway
@@ -34,6 +34,16 @@ The UI is Spanish, but all scene descriptions and video prompts must be English.
 Build compatible scene slots from the approved script and character references.
 Each Higgsfield clip must be 7 to 15 seconds.
 Return valid JSON only."""
+
+ACTIVE_HIGGSFIELD_JOB_STATUSES = (
+    "pending_confirmation",
+    "prepared",
+    "queued",
+    "submitted",
+    "running",
+    "created",
+    "manual_required",
+)
 
 
 def select_character_for_project(
@@ -134,7 +144,10 @@ def plan_scenes_for_project(
                 session,
                 scene_slot_id=slot.id,
                 option_code=candidate_payload.option_code,
-                duration_seconds=min(candidate_payload.duration_seconds, get_settings().higgsfield_max_scene_duration_seconds),
+                duration_seconds=min(
+                    candidate_payload.duration_seconds,
+                    get_settings().higgsfield_max_scene_duration_seconds,
+                ),
                 visual_description=candidate_payload.visual_description,
                 character_action=candidate_payload.character_action,
                 camera_movement=candidate_payload.camera_movement,
@@ -186,7 +199,11 @@ def create_prompt_pack_for_selected_scene(
     selected = _get_or_raise(session, models.SelectedScene, selected_scene_id)
     candidate = _get_or_raise(session, models.SceneCandidate, selected.scene_candidate_id)
     project = _get_or_raise(session, models.VideoProject, selected.video_project_id)
-    character = session.get(models.CharacterProfile, project.character_profile_id) if project.character_profile_id else None
+    character = (
+        session.get(models.CharacterProfile, project.character_profile_id)
+        if project.character_profile_id
+        else None
+    )
     references = character_reference_images(session, character.id) if character else []
     prompt = _higgsfield_prompt(project, character, candidate)
     negative = _negative_prompt(character)
@@ -215,11 +232,23 @@ def generate_clip_from_scene(
     *,
     selected_scene_id: int,
     confirmed_credits: bool = False,
+    force_new_attempt: bool = False,
 ) -> models.HiggsfieldJob:
     prompt_pack = _prompt_pack_for_scene(session, selected_scene_id)
+    existing_job = find_active_higgsfield_job(
+        session,
+        selected_scene_id=prompt_pack.selected_scene_id,
+        prompt_pack_id=prompt_pack.id,
+    )
+    if existing_job is not None and not force_new_attempt:
+        return existing_job
+
     status = check_higgsfield_status()
     estimated_credits = max(1.0, prompt_pack.duration_seconds / 8.0 * 2.0)
-    if estimated_credits > get_settings().higgsfield_confirm_credits_above and not confirmed_credits:
+    if (
+        estimated_credits > get_settings().higgsfield_confirm_credits_above
+        and not confirmed_credits
+    ):
         return create_higgsfield_job(
             session,
             video_project_id=prompt_pack.video_project_id,
@@ -228,6 +257,7 @@ def generate_clip_from_scene(
             automation_mode=status.mode,
             submitted_payload_json=_job_payload(prompt_pack),
             status="pending_confirmation",
+            error_message="Payload preparado; no se ha enviado a Higgsfield. Requiere confirmacion explicita.",
             estimated_credits=estimated_credits,
         )
     if not status.available:
@@ -249,10 +279,26 @@ def generate_clip_from_scene(
         prompt_pack_id=prompt_pack.id,
         automation_mode=status.mode,
         submitted_payload_json=_job_payload(prompt_pack),
-        status="created",
-        error_message="Ready for CLI/MCP submission after explicit user confirmation.",
+        status="pending_confirmation",
+        error_message="Payload preparado; no se ha enviado todavia a Higgsfield CLI/MCP.",
         estimated_credits=estimated_credits,
-        started_at=datetime.now(UTC),
+    )
+
+
+def find_active_higgsfield_job(
+    session: Session,
+    *,
+    selected_scene_id: int,
+    prompt_pack_id: int,
+) -> models.HiggsfieldJob | None:
+    return session.scalar(
+        select(models.HiggsfieldJob)
+        .where(
+            models.HiggsfieldJob.selected_scene_id == selected_scene_id,
+            models.HiggsfieldJob.prompt_pack_id == prompt_pack_id,
+            models.HiggsfieldJob.status.in_(ACTIVE_HIGGSFIELD_JOB_STATUSES),
+        )
+        .order_by(models.HiggsfieldJob.created_at.desc())
     )
 
 
@@ -324,9 +370,24 @@ def _fallback_scene_slots(context: dict[str, object]) -> list[SceneSlotPayload]:
     beats = script.get("beats") if isinstance(script, dict) else []
     if not isinstance(beats, list) or not beats:
         beats = [
-            {"purpose": "hook", "start_second": 0, "end_second": 8, "text": "Opening curiosity hook."},
-            {"purpose": "setup", "start_second": 8, "end_second": 22, "text": "Set up the visual mystery."},
-            {"purpose": "payoff", "start_second": 22, "end_second": 38, "text": "Reveal the surprising explanation."},
+            {
+                "purpose": "hook",
+                "start_second": 0,
+                "end_second": 8,
+                "text": "Opening curiosity hook.",
+            },
+            {
+                "purpose": "setup",
+                "start_second": 8,
+                "end_second": 22,
+                "text": "Set up the visual mystery.",
+            },
+            {
+                "purpose": "payoff",
+                "start_second": 22,
+                "end_second": 38,
+                "text": "Reveal the surprising explanation.",
+            },
         ]
     slots = []
     for index, beat in enumerate(beats, start=1):
@@ -376,7 +437,9 @@ def _higgsfield_prompt(
     candidate: models.SceneCandidate,
 ) -> str:
     character_prompt = (
-        character.prompt_fragment or character.canonical_description if character else "A consistent friendly host character"
+        character.prompt_fragment or character.canonical_description
+        if character
+        else "A consistent friendly host character"
     )
     return (
         "Vertical 9:16 cinematic animated YouTube Short. "
@@ -419,4 +482,3 @@ def _get_or_raise(session: Session, model: type[models.Base], entity_id: int):
     if entity is None:
         raise ValueError(f"{model.__name__} not found: {entity_id}")
     return entity
-

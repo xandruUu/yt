@@ -5,7 +5,7 @@ import json
 
 from app.config.settings import get_settings
 from app.core import enums
-from app.ui.dashboard import PAGES
+from app.ui.dashboard import PAGES, build_pages
 
 
 def test_dashboard_pages_import_without_missing_symbols() -> None:
@@ -19,8 +19,16 @@ def test_dashboard_pages_import_without_missing_symbols() -> None:
         assert callable(getattr(module, "render", None))
 
     assert "09_trend_research" in imported_modules
-    assert "11_voiceover" in imported_modules
+    assert "18_production" in imported_modules
     assert "08_settings" in imported_modules
+
+
+def test_legacy_pages_can_be_enabled() -> None:
+    labels = [page.label for page in build_pages(show_legacy_modules=True)]
+
+    assert "Crear Short paso a paso" in labels
+    assert "Voces" in labels
+    assert "Herramientas externas" in labels
 
 
 def test_required_stabilization_enums_exist() -> None:
@@ -37,6 +45,7 @@ def test_required_stabilization_enums_exist() -> None:
 def test_settings_safe_defaults_without_optional_env(monkeypatch) -> None:
     optional_env_keys = [
         "DEFAULT_LLM_PROVIDER",
+        "SHOW_LEGACY_MODULES",
         "DEFAULT_TTS_PROVIDER",
         "ENABLE_AUTO_LLM",
         "ENABLE_OPENAI_LLM",
@@ -64,6 +73,7 @@ def test_settings_safe_defaults_without_optional_env(monkeypatch) -> None:
     try:
         settings = get_settings()
         assert settings.default_llm_provider == "manual"
+        assert settings.show_legacy_modules is False
         assert settings.default_tts_provider == "manual"
         assert settings.enable_external_tools is True
         assert settings.default_external_mode == "manual"

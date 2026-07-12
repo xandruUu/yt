@@ -24,6 +24,7 @@ def render() -> None:
             [
                 f"APP_ENV={settings.app_env}",
                 f"APP_UI_LANGUAGE={settings.app_ui_language}",
+                f"SHOW_LEGACY_MODULES={settings.show_legacy_modules}",
                 f"CONTENT_LANGUAGE={settings.content_language}",
                 f"TARGET_MARKET={settings.target_market}",
                 f"DATABASE_URL={settings.database_url}",

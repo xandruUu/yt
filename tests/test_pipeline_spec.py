@@ -135,3 +135,13 @@ def test_locker_room_cells_and_production_pipeline(monkeypatch) -> None:
     assert "Vertical 9:16" in pack.prompt
     job = generate_clip_from_scene(session, selected_scene_id=selected.id)
     assert job.status == "manual_required"
+    duplicate = generate_clip_from_scene(session, selected_scene_id=selected.id)
+    assert duplicate.id == job.id
+
+    forced = generate_clip_from_scene(
+        session,
+        selected_scene_id=selected.id,
+        force_new_attempt=True,
+    )
+    assert forced.id != job.id
+    assert forced.status == "manual_required"

@@ -54,11 +54,16 @@ def _render_elevenlabs_tab() -> None:
     st.subheader("ElevenLabs")
     settings = get_settings()
     cols = st.columns(4)
-    cols[0].metric("Provider", "activo" if settings.enable_elevenlabs or settings.enable_elevenlabs_tts else "inactivo")
+    cols[0].metric(
+        "Provider",
+        "activo" if settings.enable_elevenlabs or settings.enable_elevenlabs_tts else "inactivo",
+    )
     cols[1].metric("API key", "configured" if settings.elevenlabs_api_key else "missing")
     cols[2].metric("Voice ID", _mask_secret(settings.elevenlabs_default_voice_id))
     cols[3].metric("Modelo", settings.elevenlabs_model_id)
-    st.caption("Esta accion puede consumir creditos de ElevenLabs. Confirma la generacion antes de llamar a la API.")
+    st.caption(
+        "Esta accion puede consumir creditos de ElevenLabs. Confirma la generacion antes de llamar a la API."
+    )
     script = _select_approved_script("external_elevenlabs_script")
     if script is None:
         st.info("Aprueba un guion antes de generar voz.")
@@ -73,9 +78,13 @@ def _render_elevenlabs_tab() -> None:
     if cost["estimated_cost"] is None:
         st.warning("Puede generar coste. No hay tarifa configurada; revisa tu plan de ElevenLabs.")
     else:
-        st.warning(f"Puede generar coste estimado: {cost['estimated_cost']:.4f} {cost['currency']}.")
+        st.warning(
+            f"Puede generar coste estimado: {cost['estimated_cost']:.4f} {cost['currency']}."
+        )
     st.caption("Comprueba licencia comercial del plan antes de monetizar.")
-    confirmed = st.checkbox("Esta accion puede consumir creditos de ElevenLabs. Confirmo la generacion.")
+    confirmed = st.checkbox(
+        "Esta accion puede consumir creditos de ElevenLabs. Confirmo la generacion."
+    )
     if st.button("Generar voz con ElevenLabs", type="primary"):
         with new_session() as session:
             job = create_voiceover_from_script(
@@ -106,9 +115,13 @@ def _mask_secret(value: str | None) -> str:
 
 def _render_higgsfield_tab() -> None:
     st.subheader("Higgsfield manual")
+    st.info(
+        "Modulo legacy/manual: esta pantalla usa Script + VisualPlan del flujo antiguo. "
+        "Para el flujo canonico basado en VideoProject usa Produccion -> Higgsfield."
+    )
     selection = _select_script_and_visual_plan("higgsfield")
     if selection is None:
-        st.info("Necesitas un guion aprobado y un plan visual para generar prompt packs.")
+        st.info("Necesitas un guion aprobado y un plan visual legacy para generar prompt packs.")
         return
     script, visual_plan = selection
     if st.button("Generar prompt pack Higgsfield", type="primary"):
@@ -128,7 +141,9 @@ def _render_picsart_tab() -> None:
     st.subheader("Picsart manual/API opcional")
     selection = _select_script_and_visual_plan("picsart")
     if selection is None:
-        st.info("Necesitas un guion aprobado y un plan visual para generar instrucciones de procesado.")
+        st.info(
+            "Necesitas un guion aprobado y un plan visual para generar instrucciones de procesado."
+        )
         return
     script, visual_plan = selection
     if st.button("Generar processing pack Picsart", type="primary"):
@@ -141,13 +156,17 @@ def _render_picsart_tab() -> None:
             )
         st.success(f"PromptPack #{pack.id} generado.")
         st.code(pack.folder_path)
-    st.caption("La API queda preparada como proveedor opcional; sin PICSART_API_KEY se usa handoff manual.")
+    st.caption(
+        "La API queda preparada como proveedor opcional; sin PICSART_API_KEY se usa handoff manual."
+    )
 
 
 def _render_prompt_packs_tab() -> None:
     st.subheader("Paquetes de prompts")
     with new_session() as session:
-        packs = session.scalars(select(models.PromptPack).order_by(models.PromptPack.created_at.desc())).all()
+        packs = session.scalars(
+            select(models.PromptPack).order_by(models.PromptPack.created_at.desc())
+        ).all()
         if not packs:
             st.info("Todavia no hay prompt packs.")
             return
@@ -164,7 +183,9 @@ def _render_prompt_packs_tab() -> None:
 def _render_clips_tab() -> None:
     st.subheader("Importar clips/assets externos")
     script = _select_approved_script("external_asset_script", allow_none=True)
-    visual_plan = _select_visual_plan("external_asset_visual", script.id if script else None, allow_none=True)
+    visual_plan = _select_visual_plan(
+        "external_asset_visual", script.id if script else None, allow_none=True
+    )
     col1, col2, col3 = st.columns(3)
     file_path = col1.text_input("Ruta local del archivo")
     asset_type = col2.selectbox("Tipo", ["video", "image", "audio", "sfx"])
@@ -214,13 +235,17 @@ def _render_external_assets_table() -> None:
                     st.video(asset.file_path)
                 elif asset.asset_type == "image" and Path(asset.file_path).exists():
                     st.image(asset.file_path)
-                license_type = st.text_input("Licencia", value=asset.license_type or "", key=f"asset_license_{asset.id}")
+                license_type = st.text_input(
+                    "Licencia", value=asset.license_type or "", key=f"asset_license_{asset.id}"
+                )
                 commercial = st.checkbox(
                     "Uso comercial confirmado",
                     value=asset.commercial_use_confirmed,
                     key=f"asset_commercial_{asset.id}",
                 )
-                notes = st.text_area("Notas", value=asset.license_notes or "", key=f"asset_notes_{asset.id}")
+                notes = st.text_area(
+                    "Notas", value=asset.license_notes or "", key=f"asset_notes_{asset.id}"
+                )
                 if st.button("Guardar licencia", key=f"asset_save_license_{asset.id}"):
                     set_external_asset_license(
                         session,
@@ -240,7 +265,9 @@ def _render_costs_tab() -> None:
         cols[0].metric("Eventos", summary.event_count)
         cols[1].metric("Estimado", f"{summary.estimated_total:.4f} {summary.currency}")
         cols[2].metric("Real", f"{summary.actual_total:.4f} {summary.currency}")
-        events = session.scalars(select(models.CostEvent).order_by(models.CostEvent.created_at.desc())).all()
+        events = session.scalars(
+            select(models.CostEvent).order_by(models.CostEvent.created_at.desc())
+        ).all()
         st.dataframe(
             [
                 {
@@ -295,13 +322,20 @@ def _select_approved_script(key: str, allow_none: bool = False) -> models.Script
         if not scripts:
             return None
         options = {"Ninguno": None} if allow_none else {}
-        options.update({f"#{script.id} {script.topic.title} [{script.language}]": script.id for script in scripts})
+        options.update(
+            {
+                f"#{script.id} {script.topic.title} [{script.language}]": script.id
+                for script in scripts
+            }
+        )
         selected = st.selectbox("Guion aprobado", list(options), key=key)
         script_id = options[selected]
         return session.get(models.Script, script_id) if script_id else None
 
 
-def _select_visual_plan(key: str, script_id: int | None, allow_none: bool = False) -> models.VisualPlan | None:
+def _select_visual_plan(
+    key: str, script_id: int | None, allow_none: bool = False
+) -> models.VisualPlan | None:
     with new_session() as session:
         statement = select(models.VisualPlan).order_by(models.VisualPlan.created_at.desc())
         if script_id:
@@ -310,13 +344,17 @@ def _select_visual_plan(key: str, script_id: int | None, allow_none: bool = Fals
         if not plans:
             return None
         options = {"Ninguno": None} if allow_none else {}
-        options.update({f"#{plan.id} {plan.template_name} [{plan.status}]": plan.id for plan in plans})
+        options.update(
+            {f"#{plan.id} {plan.template_name} [{plan.status}]": plan.id for plan in plans}
+        )
         selected = st.selectbox("Plan visual", list(options), key=key)
         plan_id = options[selected]
         return session.get(models.VisualPlan, plan_id) if plan_id else None
 
 
-def _select_script_and_visual_plan(key_prefix: str) -> tuple[models.Script, models.VisualPlan] | None:
+def _select_script_and_visual_plan(
+    key_prefix: str,
+) -> tuple[models.Script, models.VisualPlan] | None:
     script = _select_approved_script(f"{key_prefix}_script")
     if script is None:
         return None

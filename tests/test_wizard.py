@@ -10,7 +10,7 @@ from app.core.wizard import (
     wizard_progress,
     wizard_step_values,
 )
-from app.i18n.es import NAVIGATION, WIZARD_STEP_LABELS
+from app.i18n.es import LEGACY_NAVIGATION, NAVIGATION, WIZARD_STEP_LABELS
 
 
 class WizardTests(unittest.TestCase):
@@ -30,12 +30,14 @@ class WizardTests(unittest.TestCase):
 
     def test_spanish_navigation_contains_guided_flow(self) -> None:
         labels = [label for label, _module in NAVIGATION]
-        self.assertEqual(labels[0], "Investigacion")
-        self.assertIn("Crear Short paso a paso", labels)
+        legacy_labels = [label for label, _module in LEGACY_NAVIGATION]
+        self.assertEqual(labels[0], "Inicio")
+        self.assertNotIn("Crear Short paso a paso", labels)
         self.assertIn("Creacion", labels)
         self.assertIn("Produccion", labels)
         self.assertIn("Personajes", labels)
-        self.assertIn("Storyboard Nero", labels)
+        self.assertIn("Crear Short paso a paso", legacy_labels)
+        self.assertIn("Storyboard Nero", legacy_labels)
         self.assertEqual(WIZARD_STEP_LABELS[WizardStep.RESEARCH], "Investigar")
 
 

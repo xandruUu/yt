@@ -1,6 +1,12 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.log
+*.mp3
+*.mp4
+*.mov
+*.wav
+*.webm
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

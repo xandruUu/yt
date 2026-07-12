@@ -12,6 +12,7 @@ from app.services.production_pipeline_service import (
     approve_script_draft,
     check_higgsfield_status,
     create_prompt_pack_for_selected_scene,
+    find_active_higgsfield_job,
     generate_clip_from_scene,
     generate_script_for_project,
     plan_scenes_for_project,
@@ -27,7 +28,11 @@ def render() -> None:
     with new_session() as session:
         seed_nero_character_system(session)
         projects = list(
-            session.scalars(select(models.VideoProject).order_by(models.VideoProject.created_at.desc()).limit(30)).all()
+            session.scalars(
+                select(models.VideoProject)
+                .order_by(models.VideoProject.created_at.desc())
+                .limit(30)
+            ).all()
         )
         if not projects:
             st.info("Todavia no hay VideoProjects. Crea uno desde Ideas.")
@@ -35,7 +40,9 @@ def render() -> None:
         project_id = st.selectbox(
             "Proyecto",
             [project.id for project in projects],
-            format_func=lambda value: _project_label(next(project for project in projects if project.id == value)),
+            format_func=lambda value: _project_label(
+                next(project for project in projects if project.id == value)
+            ),
         )
         project = session.get(models.VideoProject, int(project_id))
         if project is None:
@@ -67,7 +74,11 @@ def _project_summary(project: models.VideoProject) -> None:
 
 def _character_panel(session, project: models.VideoProject) -> None:
     st.subheader("1. Personaje")
-    characters = list(session.scalars(select(models.CharacterProfile).order_by(models.CharacterProfile.name)).all())
+    characters = list(
+        session.scalars(
+            select(models.CharacterProfile).order_by(models.CharacterProfile.name)
+        ).all()
+    )
     options = {f"{character.name} ({character.slug})": character.id for character in characters}
     current = project.character_profile_id or (characters[0].id if characters else None)
     if current is None:
@@ -77,7 +88,9 @@ def _character_panel(session, project: models.VideoProject) -> None:
     index = list(options.values()).index(current) if current in options.values() else 0
     selected_label = st.selectbox("Selector locker room", labels, index=index)
     if st.button("Seleccionar personaje para proyecto"):
-        select_character_for_project(session, video_project_id=project.id, character_profile_id=options[selected_label])
+        select_character_for_project(
+            session, video_project_id=project.id, character_profile_id=options[selected_label]
+        )
         st.success("Personaje seleccionado.")
         st.rerun()
 
@@ -85,7 +98,9 @@ def _character_panel(session, project: models.VideoProject) -> None:
 def _script_panel(session, project: models.VideoProject) -> None:
     st.subheader("2. Guion")
     scripts = _scripts(session, project.id)
-    if st.button("Generar guion en ingles", type="primary", disabled=project.character_profile_id is None):
+    if st.button(
+        "Generar guion en ingles", type="primary", disabled=project.character_profile_id is None
+    ):
         script = generate_script_for_project(session, video_project_id=project.id)
         st.success(f"ScriptDraft #{script.id} generado.")
         st.rerun()
@@ -93,11 +108,15 @@ def _script_panel(session, project: models.VideoProject) -> None:
         st.info("Genera un guion despues de seleccionar personaje.")
         return
     script = scripts[0]
-    st.caption(f"Estado: {script.status} | {script.estimated_words} words | {script.estimated_duration_seconds}s")
+    st.caption(
+        f"Estado: {script.status} | {script.estimated_words} words | {script.estimated_duration_seconds}s"
+    )
     st.text_area("Voiceover text", value=script.voiceover_text, height=220, disabled=True)
     with st.expander("Beats"):
         st.json(_json_loads(script.beats_json))
-    if script.status != "script_approved" and st.button("Aprobar guion", key=f"approve_script_{script.id}"):
+    if script.status != "script_approved" and st.button(
+        "Aprobar guion", key=f"approve_script_{script.id}"
+    ):
         try:
             approve_script_draft(session, script.id)
         except ValueError as exc:
@@ -168,7 +187,9 @@ def _scene_panel(session, project: models.VideoProject) -> None:
             candidates = _scene_candidates(session, slot.id)
             for candidate in candidates:
                 st.write(f"**{candidate.option_code}:** {candidate.visual_description}")
-                st.caption(f"{candidate.duration_seconds}s | {candidate.camera_movement} | {candidate.status}")
+                st.caption(
+                    f"{candidate.duration_seconds}s | {candidate.camera_movement} | {candidate.status}"
+                )
                 if candidate.status != "selected" and st.button(
                     f"Seleccionar {candidate.option_code}",
                     key=f"select_scene_{candidate.id}",
@@ -182,6 +203,10 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
     st.subheader("5. Higgsfield")
     status = check_higgsfield_status()
     st.caption(f"Modo: {status.mode} | Disponible: {status.available} | {status.detail}")
+    st.warning(
+        "Estado actual: este panel solo prepara payloads/jobs internos. "
+        "No envia todavia una generacion real a Higgsfield CLI/MCP."
+    )
     selected_scenes = _selected_scenes(session, project.id)
     if not selected_scenes:
         st.info("Selecciona escenas antes de generar prompt packs.")
@@ -189,12 +214,37 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
     for selected in selected_scenes:
         with st.container(border=True):
             st.markdown(f"**SelectedScene #{selected.id}**")
+            prompt_pack = _latest_prompt_pack_for_selected_scene(session, selected.id)
+            force_new_attempt = False
+            if prompt_pack is not None:
+                existing_job = find_active_higgsfield_job(
+                    session,
+                    selected_scene_id=selected.id,
+                    prompt_pack_id=prompt_pack.id,
+                )
+                if existing_job is not None:
+                    st.info(
+                        f"Job activo existente: HiggsfieldJob #{existing_job.id} [{existing_job.status}]"
+                    )
+                    if existing_job.error_message:
+                        st.caption(existing_job.error_message)
+                    force_new_attempt = st.checkbox(
+                        "Crear nuevo intento aunque ya exista uno",
+                        key=f"higgs_force_new_{selected.id}_{prompt_pack.id}",
+                    )
             if st.button("Generar prompt pack", key=f"pack_{selected.id}"):
                 pack = create_prompt_pack_for_selected_scene(session, selected_scene_id=selected.id)
                 st.success(f"HiggsfieldPromptPack #{pack.id} generado.")
                 st.rerun()
-            if st.button("Intentar Higgsfield / fallback manual", key=f"higgs_{selected.id}"):
-                job = generate_clip_from_scene(session, selected_scene_id=selected.id)
+            if st.button(
+                "Preparar job Higgsfield pendiente de confirmacion",
+                key=f"higgs_{selected.id}",
+            ):
+                job = generate_clip_from_scene(
+                    session,
+                    selected_scene_id=selected.id,
+                    force_new_attempt=force_new_attempt,
+                )
                 st.success(f"HiggsfieldJob #{job.id}: {job.status}")
                 if job.error_message:
                     st.warning(job.error_message)
@@ -279,6 +329,16 @@ def _prompt_packs(session, project_id: int) -> list[models.HiggsfieldPromptPack]
     )
 
 
+def _latest_prompt_pack_for_selected_scene(
+    session, selected_scene_id: int
+) -> models.HiggsfieldPromptPack | None:
+    return session.scalar(
+        select(models.HiggsfieldPromptPack)
+        .where(models.HiggsfieldPromptPack.selected_scene_id == selected_scene_id)
+        .order_by(models.HiggsfieldPromptPack.created_at.desc())
+    )
+
+
 def _project_label(project: models.VideoProject) -> str:
     return f"#{project.id} | {project.status} | {project.title}"
 
@@ -289,4 +349,3 @@ def _json_loads(value: str | None):
     except json.JSONDecodeError:
         decoded = []
     return decoded if isinstance(decoded, list) else []
-
