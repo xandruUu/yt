@@ -20,6 +20,7 @@ from app.services.pipeline_service import (
 from app.services.production_pipeline_service import (
     approve_script_draft,
     create_prompt_pack_for_selected_scene,
+    find_active_higgsfield_prompt_pack,
     generate_clip_from_scene,
     generate_script_for_project,
     plan_scenes_for_project,
@@ -133,6 +134,19 @@ def test_locker_room_cells_and_production_pipeline(monkeypatch) -> None:
     selected = select_scene_candidate(session, scene_candidate_id=scene_candidate.id)
     pack = create_prompt_pack_for_selected_scene(session, selected_scene_id=selected.id)
     assert "Vertical 9:16" in pack.prompt
+    duplicate_pack = create_prompt_pack_for_selected_scene(session, selected_scene_id=selected.id)
+    assert duplicate_pack.id == pack.id
+    forced_pack = create_prompt_pack_for_selected_scene(
+        session,
+        selected_scene_id=selected.id,
+        force_new_pack=True,
+    )
+    assert forced_pack.id != pack.id
+    assert (
+        find_active_higgsfield_prompt_pack(session, selected_scene_id=selected.id).id
+        == forced_pack.id
+    )
+
     job = generate_clip_from_scene(session, selected_scene_id=selected.id)
     assert job.status == "manual_required"
     duplicate = generate_clip_from_scene(session, selected_scene_id=selected.id)

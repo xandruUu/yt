@@ -31,6 +31,21 @@ def test_legacy_pages_can_be_enabled() -> None:
     assert "Herramientas externas" in labels
 
 
+def test_build_pages_without_legacy_excludes_legacy() -> None:
+    labels = [page.label for page in build_pages(show_legacy_modules=False)]
+
+    assert "Produccion" in labels
+    assert "Herramientas externas" not in labels
+    assert "Storyboard Nero" not in labels
+
+
+def test_build_pages_with_legacy_includes_legacy() -> None:
+    labels = [page.label for page in build_pages(show_legacy_modules=True)]
+
+    assert "Herramientas externas" in labels
+    assert "Storyboard Nero" in labels
+
+
 def test_required_stabilization_enums_exist() -> None:
     assert enums.GeneratedIdeaStatus.SUGGESTED.value == "suggested"
     assert enums.VoiceoverJobStatus.PENDING.value == "pending"
@@ -46,6 +61,7 @@ def test_settings_safe_defaults_without_optional_env(monkeypatch) -> None:
     optional_env_keys = [
         "DEFAULT_LLM_PROVIDER",
         "SHOW_LEGACY_MODULES",
+        "DATABASE_SCHEMA",
         "DEFAULT_TTS_PROVIDER",
         "ENABLE_AUTO_LLM",
         "ENABLE_OPENAI_LLM",
@@ -74,6 +90,7 @@ def test_settings_safe_defaults_without_optional_env(monkeypatch) -> None:
         settings = get_settings()
         assert settings.default_llm_provider == "manual"
         assert settings.show_legacy_modules is False
+        assert settings.database_schema == ""
         assert settings.default_tts_provider == "manual"
         assert settings.enable_external_tools is True
         assert settings.default_external_mode == "manual"

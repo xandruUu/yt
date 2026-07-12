@@ -23,6 +23,7 @@ class Settings:
     content_language: str
     target_market: str
     database_url: str
+    database_schema: str
     output_dir: Path
     outputs_dir: Path
     assets_dir: Path
@@ -125,10 +126,16 @@ class Settings:
     ffprobe_path: str
 
     @property
-    def database_path(self) -> Path:
+    def sqlite_database_path(self) -> Path:
         if self.database_url.startswith("sqlite:///"):
             return Path(self.database_url.removeprefix("sqlite:///"))
-        raise ValueError("Only sqlite:/// DATABASE_URL values are supported in the MVP.")
+        raise ValueError(
+            "sqlite_database_path is only available for sqlite:/// DATABASE_URL values."
+        )
+
+    @property
+    def database_path(self) -> Path:
+        return self.sqlite_database_path
 
 
 @lru_cache(maxsize=1)
@@ -141,6 +148,7 @@ def get_settings() -> Settings:
         content_language=os.getenv("CONTENT_LANGUAGE", "en"),
         target_market=os.getenv("TARGET_MARKET", "global"),
         database_url=os.getenv("DATABASE_URL", "sqlite:///data/shorts_factory.db"),
+        database_schema=os.getenv("DATABASE_SCHEMA", "").strip(),
         output_dir=output_dir,
         outputs_dir=Path(os.getenv("OUTPUTS_DIR", str(output_dir))),
         assets_dir=Path(os.getenv("ASSETS_DIR", "assets")),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import Engine, inspect, text
 
-SQLITE_RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
+RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
     "character_profiles": {
         "family_id": "INTEGER",
         "main_image_path": "TEXT",
@@ -29,22 +29,35 @@ SQLITE_RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
         "video_project_id": "INTEGER",
         "script_draft_id": "INTEGER",
     },
+    "generated_clips": {
+        "prompt_pack_id": "INTEGER",
+        "external_job_id": "VARCHAR(240)",
+        "asset_type": "VARCHAR(64) NOT NULL DEFAULT 'video'",
+        "license_type": "VARCHAR(120)",
+        "commercial_use_confirmed": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "notes": "TEXT",
+        "metadata_json": "TEXT",
+    },
+    "render_jobs": {
+        "metadata_json": "TEXT",
+    },
 }
 
 
 def ensure_runtime_schema(engine: Engine) -> None:
-    if engine.dialect.name != "sqlite":
+    if engine.dialect.name not in {"sqlite", "postgresql"}:
         return
 
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     with engine.begin() as connection:
-        for table_name, columns in SQLITE_RUNTIME_COLUMNS.items():
+        for table_name, columns in RUNTIME_COLUMNS.items():
             if table_name not in existing_tables:
                 continue
             existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
             for column_name, definition in columns.items():
                 if column_name in existing_columns:
                     continue
-                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
-
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+                )

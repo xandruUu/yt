@@ -60,7 +60,9 @@ class Topic(TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
     hooks: Mapped[list[Hook]] = relationship(back_populates="topic", cascade="all, delete-orphan")
-    scripts: Mapped[list[Script]] = relationship(back_populates="topic", cascade="all, delete-orphan")
+    scripts: Mapped[list[Script]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
 
 
 class GeneratedIdea(TimestampMixin, Base):
@@ -76,7 +78,9 @@ class GeneratedIdea(TimestampMixin, Base):
     target_market: Mapped[str] = mapped_column(String(80), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     suggested_duration: Mapped[str] = mapped_column(String(48), nullable=False, default="30-45s")
-    suggested_format: Mapped[str] = mapped_column(String(80), nullable=False, default="documental_rapido")
+    suggested_format: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="documental_rapido"
+    )
     suggested_hook_type: Mapped[str] = mapped_column(String(64), nullable=False, default="mystery")
     suggested_visual: Mapped[str | None] = mapped_column(Text)
     target_audience: Mapped[str | None] = mapped_column(Text)
@@ -101,7 +105,9 @@ class GeneratedTitle(TimestampMixin, Base):
     __tablename__ = "generated_titles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    generated_idea_id: Mapped[int | None] = mapped_column(ForeignKey("generated_ideas.id"), nullable=True)
+    generated_idea_id: Mapped[int | None] = mapped_column(
+        ForeignKey("generated_ideas.id"), nullable=True
+    )
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     hook_id: Mapped[int] = mapped_column(ForeignKey("hooks.id"), nullable=False, index=True)
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="es")
@@ -124,7 +130,9 @@ class MetadataSuggestion(TimestampMixin, Base):
     __tablename__ = "metadata_suggestions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    generated_idea_id: Mapped[int | None] = mapped_column(ForeignKey("generated_ideas.id"), nullable=True)
+    generated_idea_id: Mapped[int | None] = mapped_column(
+        ForeignKey("generated_ideas.id"), nullable=True
+    )
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     hook_id: Mapped[int | None] = mapped_column(ForeignKey("hooks.id"), nullable=True)
     title_id: Mapped[int | None] = mapped_column(ForeignKey("generated_titles.id"), nullable=True)
@@ -136,7 +144,9 @@ class MetadataSuggestion(TimestampMixin, Base):
     pinned_comment: Mapped[str | None] = mapped_column(Text)
     upload_notes: Mapped[str | None] = mapped_column(Text)
     synthetic_media_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    made_for_kids_recommendation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    made_for_kids_recommendation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="suggested")
 
 
@@ -265,10 +275,16 @@ class VoiceoverJob(TimestampMixin, Base):
     __tablename__ = "voiceover_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int | None] = mapped_column(ForeignKey("video_projects.id"), nullable=True, index=True)
+    video_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=True, index=True
+    )
     wizard_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
-    script_draft_id: Mapped[int | None] = mapped_column(ForeignKey("script_drafts.id"), nullable=True, index=True)
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scripts.id"), nullable=True, index=True
+    )
+    script_draft_id: Mapped[int | None] = mapped_column(
+        ForeignKey("script_drafts.id"), nullable=True, index=True
+    )
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="placeholder")
     voice_name: Mapped[str | None] = mapped_column(String(160))
@@ -293,10 +309,18 @@ class SubtitleTrack(TimestampMixin, Base):
     __tablename__ = "subtitle_tracks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int | None] = mapped_column(ForeignKey("video_projects.id"), nullable=True, index=True)
-    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
-    script_draft_id: Mapped[int | None] = mapped_column(ForeignKey("script_drafts.id"), nullable=True, index=True)
-    voiceover_job_id: Mapped[int | None] = mapped_column(ForeignKey("voiceover_jobs.id"), nullable=True)
+    video_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=True, index=True
+    )
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scripts.id"), nullable=True, index=True
+    )
+    script_draft_id: Mapped[int | None] = mapped_column(
+        ForeignKey("script_drafts.id"), nullable=True, index=True
+    )
+    voiceover_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("voiceover_jobs.id"), nullable=True
+    )
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     srt_path: Mapped[str | None] = mapped_column(Text)
     ass_path: Mapped[str | None] = mapped_column(Text)
@@ -313,7 +337,9 @@ class VisualPlan(TimestampMixin, Base):
     template_name: Mapped[str] = mapped_column(String(80), nullable=False, default="texto_potente")
     global_style: Mapped[str] = mapped_column(Text, nullable=False, default="")
     background_style: Mapped[str] = mapped_column(String(120), nullable=False, default="clean")
-    caption_style: Mapped[str] = mapped_column(String(120), nullable=False, default="large_high_contrast")
+    caption_style: Mapped[str] = mapped_column(
+        String(120), nullable=False, default="large_high_contrast"
+    )
     scenes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="generated")
 
@@ -336,7 +362,9 @@ class CharacterProfile(TimestampMixin, Base):
     __tablename__ = "character_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    family_id: Mapped[int | None] = mapped_column(ForeignKey("character_families.id"), nullable=True)
+    family_id: Mapped[int | None] = mapped_column(
+        ForeignKey("character_families.id"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(String(240), nullable=False, default="")
@@ -368,7 +396,9 @@ class CharacterPose(TimestampMixin, Base):
     __tablename__ = "character_poses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    character_id: Mapped[int] = mapped_column(ForeignKey("character_profiles.id"), nullable=False, index=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("character_profiles.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     camera_angle: Mapped[str] = mapped_column(String(120), nullable=False, default="")
@@ -383,7 +413,9 @@ class CharacterVariant(TimestampMixin, Base):
     __tablename__ = "character_variants"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    character_id: Mapped[int] = mapped_column(ForeignKey("character_profiles.id"), nullable=False, index=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("character_profiles.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     allowed_changes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -423,7 +455,9 @@ class VisualStoryboard(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"), nullable=False, index=True)
-    character_id: Mapped[int] = mapped_column(ForeignKey("character_profiles.id"), nullable=False, index=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("character_profiles.id"), nullable=False, index=True
+    )
     visual_style: Mapped[str] = mapped_column(Text, nullable=False, default="")
     total_scenes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     aspect_ratio: Mapped[str] = mapped_column(String(32), nullable=False, default="9:16")
@@ -437,7 +471,9 @@ class StoryboardScene(TimestampMixin, Base):
     __tablename__ = "storyboard_scenes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    storyboard_id: Mapped[int] = mapped_column(ForeignKey("visual_storyboards.id"), nullable=False, index=True)
+    storyboard_id: Mapped[int] = mapped_column(
+        ForeignKey("visual_storyboards.id"), nullable=False, index=True
+    )
     scene_number: Mapped[int] = mapped_column(Integer, nullable=False)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
     narration_line: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -456,7 +492,9 @@ class StoryboardScene(TimestampMixin, Base):
     picsart_processing_notes: Mapped[str | None] = mapped_column(Text)
     negative_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     required_assets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    external_asset_id: Mapped[int | None] = mapped_column(ForeignKey("external_assets.id"), nullable=True)
+    external_asset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("external_assets.id"), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="generated")
 
 
@@ -464,8 +502,12 @@ class SceneAssetMapping(TimestampMixin, Base):
     __tablename__ = "scene_asset_mappings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    scene_id: Mapped[int] = mapped_column(ForeignKey("storyboard_scenes.id"), nullable=False, index=True)
-    external_asset_id: Mapped[int] = mapped_column(ForeignKey("external_assets.id"), nullable=False, index=True)
+    scene_id: Mapped[int] = mapped_column(
+        ForeignKey("storyboard_scenes.id"), nullable=False, index=True
+    )
+    external_asset_id: Mapped[int] = mapped_column(
+        ForeignKey("external_assets.id"), nullable=False, index=True
+    )
     usage_type: Mapped[str] = mapped_column(String(80), nullable=False, default="foreground_clip")
     start_time: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     duration: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -481,8 +523,12 @@ class RenderPlan(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     wizard_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"), nullable=False, index=True)
-    voiceover_job_id: Mapped[int | None] = mapped_column(ForeignKey("voiceover_jobs.id"), nullable=True)
-    subtitle_track_id: Mapped[int | None] = mapped_column(ForeignKey("subtitle_tracks.id"), nullable=True)
+    voiceover_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("voiceover_jobs.id"), nullable=True
+    )
+    subtitle_track_id: Mapped[int | None] = mapped_column(
+        ForeignKey("subtitle_tracks.id"), nullable=True
+    )
     visual_plan_id: Mapped[int | None] = mapped_column(ForeignKey("visual_plans.id"), nullable=True)
     music_track_id: Mapped[int | None] = mapped_column(ForeignKey("music_tracks.id"), nullable=True)
     output_path: Mapped[str | None] = mapped_column(Text)
@@ -495,7 +541,9 @@ class ExternalToolJob(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     wizard_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scripts.id"), nullable=True, index=True
+    )
     visual_plan_id: Mapped[int | None] = mapped_column(ForeignKey("visual_plans.id"), nullable=True)
     provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
     provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -533,7 +581,9 @@ class ExternalAsset(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     wizard_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    script_id: Mapped[int | None] = mapped_column(ForeignKey("scripts.id"), nullable=True, index=True)
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scripts.id"), nullable=True, index=True
+    )
     visual_plan_id: Mapped[int | None] = mapped_column(ForeignKey("visual_plans.id"), nullable=True)
     scene_order: Mapped[int | None] = mapped_column(Integer)
     provider_name: Mapped[str | None] = mapped_column(String(120))
@@ -570,7 +620,9 @@ class ProviderFetchLog(TimestampMixin, Base):
     __tablename__ = "provider_fetch_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    research_run_id: Mapped[int] = mapped_column(
+        ForeignKey("research_runs.id"), nullable=False, index=True
+    )
     provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
     request_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     response_summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -585,7 +637,9 @@ class TrendItem(TimestampMixin, Base):
     __tablename__ = "trend_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    research_run_id: Mapped[int] = mapped_column(
+        ForeignKey("research_runs.id"), nullable=False, index=True
+    )
     provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
     external_id: Mapped[str | None] = mapped_column(String(240))
     url: Mapped[str | None] = mapped_column(Text)
@@ -615,7 +669,9 @@ class IdeaCandidate(TimestampMixin, Base):
     __tablename__ = "idea_candidates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    research_run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), nullable=False, index=True)
+    research_run_id: Mapped[int] = mapped_column(
+        ForeignKey("research_runs.id"), nullable=False, index=True
+    )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     short_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     viral_angle: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -632,7 +688,9 @@ class CreationInboxItem(TimestampMixin, Base):
     __tablename__ = "creation_inbox_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    idea_candidate_id: Mapped[int] = mapped_column(ForeignKey("idea_candidates.id"), nullable=False, index=True)
+    idea_candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("idea_candidates.id"), nullable=False, index=True
+    )
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
     notes: Mapped[str | None] = mapped_column(Text)
 
@@ -641,7 +699,9 @@ class DeepResearchRun(TimestampMixin, Base):
     __tablename__ = "deep_research_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    idea_candidate_id: Mapped[int] = mapped_column(ForeignKey("idea_candidates.id"), nullable=False, index=True)
+    idea_candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("idea_candidates.id"), nullable=False, index=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="created")
@@ -724,7 +784,9 @@ class ScriptDraft(TimestampMixin, Base):
     __tablename__ = "script_drafts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="en")
     voiceover_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
@@ -739,7 +801,9 @@ class SceneSlot(TimestampMixin, Base):
     __tablename__ = "scene_slots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
     slot_number: Mapped[int] = mapped_column(Integer, nullable=False)
     slot_type: Mapped[str] = mapped_column(String(80), nullable=False, default="scene")
     target_start_second: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -751,7 +815,9 @@ class SceneCandidate(TimestampMixin, Base):
     __tablename__ = "scene_candidates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    scene_slot_id: Mapped[int] = mapped_column(ForeignKey("scene_slots.id"), nullable=False, index=True)
+    scene_slot_id: Mapped[int] = mapped_column(
+        ForeignKey("scene_slots.id"), nullable=False, index=True
+    )
     option_code: Mapped[str] = mapped_column(String(24), nullable=False)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
     visual_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -761,7 +827,9 @@ class SceneCandidate(TimestampMixin, Base):
     continuity_in: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     continuity_out: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     compatible_next_states_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    required_character_cell_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    required_character_cell_ids_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="suggested")
 
@@ -770,8 +838,12 @@ class SelectedScene(TimestampMixin, Base):
     __tablename__ = "selected_scenes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
-    scene_slot_id: Mapped[int] = mapped_column(ForeignKey("scene_slots.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
+    scene_slot_id: Mapped[int] = mapped_column(
+        ForeignKey("scene_slots.id"), nullable=False, index=True
+    )
     scene_candidate_id: Mapped[int] = mapped_column(
         ForeignKey("scene_candidates.id"),
         nullable=False,
@@ -785,8 +857,12 @@ class HiggsfieldPromptPack(TimestampMixin, Base):
     __tablename__ = "higgsfield_prompt_packs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
-    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
+    selected_scene_id: Mapped[int] = mapped_column(
+        ForeignKey("selected_scenes.id"), nullable=False, index=True
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     negative_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     reference_images_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -802,8 +878,12 @@ class HiggsfieldJob(TimestampMixin, Base):
     __tablename__ = "higgsfield_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
-    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
+    selected_scene_id: Mapped[int] = mapped_column(
+        ForeignKey("selected_scenes.id"), nullable=False, index=True
+    )
     prompt_pack_id: Mapped[int] = mapped_column(
         ForeignKey("higgsfield_prompt_packs.id"),
         nullable=False,
@@ -825,9 +905,20 @@ class GeneratedClip(TimestampMixin, Base):
     __tablename__ = "generated_clips"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
-    selected_scene_id: Mapped[int] = mapped_column(ForeignKey("selected_scenes.id"), nullable=False, index=True)
-    higgsfield_job_id: Mapped[int | None] = mapped_column(ForeignKey("higgsfield_jobs.id"), nullable=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
+    selected_scene_id: Mapped[int] = mapped_column(
+        ForeignKey("selected_scenes.id"), nullable=False, index=True
+    )
+    prompt_pack_id: Mapped[int | None] = mapped_column(
+        ForeignKey("higgsfield_prompt_packs.id"), nullable=True
+    )
+    higgsfield_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("higgsfield_jobs.id"), nullable=True
+    )
+    external_job_id: Mapped[str | None] = mapped_column(String(240))
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False, default="video")
     source: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     thumbnail_path: Mapped[str | None] = mapped_column(Text)
@@ -835,6 +926,10 @@ class GeneratedClip(TimestampMixin, Base):
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
     fps: Mapped[float | None] = mapped_column(Float)
+    license_type: Mapped[str | None] = mapped_column(String(120))
+    commercial_use_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="registered")
 
 
@@ -842,7 +937,9 @@ class RenderJob(TimestampMixin, Base):
     __tablename__ = "render_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    video_project_id: Mapped[int] = mapped_column(ForeignKey("video_projects.id"), nullable=False, index=True)
+    video_project_id: Mapped[int] = mapped_column(
+        ForeignKey("video_projects.id"), nullable=False, index=True
+    )
     output_path: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int] = mapped_column(Integer, nullable=False, default=1080)
     height: Mapped[int] = mapped_column(Integer, nullable=False, default=1920)
@@ -850,6 +947,7 @@ class RenderJob(TimestampMixin, Base):
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
 class ObsidianSyncLog(TimestampMixin, Base):
@@ -888,7 +986,9 @@ class Render(Base):
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"), nullable=False, index=True)
     channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id"), index=True)
     language: Mapped[str] = mapped_column(String(32), nullable=False)
-    template_name: Mapped[str] = mapped_column(String(80), nullable=False, default="clean_text_focus")
+    template_name: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="clean_text_focus"
+    )
     video_path: Mapped[str | None] = mapped_column(Text)
     thumbnail_path: Mapped[str | None] = mapped_column(Text)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=38.0)
@@ -925,7 +1025,9 @@ class ReviewChecklist(Base):
     audio_clear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     video_not_too_repetitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     metadata_not_misleading: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    made_for_kids_false_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    made_for_kids_false_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     synthetic_media_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     review_notes: Mapped[str | None] = mapped_column(Text)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

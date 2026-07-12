@@ -92,8 +92,7 @@ def _render_scene_editor(session, scene: models.StoryboardScene) -> None:
     with st.container(border=True):
         st.markdown(f"**Escena {scene.scene_number:02}**")
         with st.form(f"scene_form_{scene.id}"):
-            safe_duration = float(scene.duration_seconds or 8.0)
-            duration_max = max(90.0, safe_duration)
+            safe_duration, duration_max = safe_duration_bounds(scene.duration_seconds)
             duration = st.number_input(
                 "Duracion",
                 min_value=0.5,
@@ -149,3 +148,8 @@ def _render_scene_editor(session, scene: models.StoryboardScene) -> None:
                 add_and_commit(session, scene)
                 st.success("Escena guardada.")
                 st.rerun()
+
+
+def safe_duration_bounds(duration: float | None) -> tuple[float, float]:
+    safe_duration = float(duration or 8.0)
+    return safe_duration, max(90.0, safe_duration)

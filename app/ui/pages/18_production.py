@@ -13,6 +13,7 @@ from app.services.production_pipeline_service import (
     check_higgsfield_status,
     create_prompt_pack_for_selected_scene,
     find_active_higgsfield_job,
+    find_active_higgsfield_prompt_pack,
     generate_clip_from_scene,
     generate_script_for_project,
     plan_scenes_for_project,
@@ -204,8 +205,9 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
     status = check_higgsfield_status()
     st.caption(f"Modo: {status.mode} | Disponible: {status.available} | {status.detail}")
     st.warning(
-        "Estado actual: este panel solo prepara payloads/jobs internos. "
-        "No envia todavia una generacion real a Higgsfield CLI/MCP."
+        "Estado actual: ShortsFactory prepara prompt packs y jobs internos. "
+        "Todavia NO envia generaciones reales a Higgsfield CLI/MCP. "
+        "No se consumen creditos desde esta pantalla hasta implementar envio real con confirmacion explicita."
     )
     selected_scenes = _selected_scenes(session, project.id)
     if not selected_scenes:
@@ -214,9 +216,15 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
     for selected in selected_scenes:
         with st.container(border=True):
             st.markdown(f"**SelectedScene #{selected.id}**")
-            prompt_pack = _latest_prompt_pack_for_selected_scene(session, selected.id)
+            prompt_pack = find_active_higgsfield_prompt_pack(session, selected_scene_id=selected.id)
+            force_new_pack = False
             force_new_attempt = False
             if prompt_pack is not None:
+                st.info(f"Prompt pack existente: #{prompt_pack.id} [{prompt_pack.status}]")
+                force_new_pack = st.checkbox(
+                    "Regenerar prompt pack aunque ya exista",
+                    key=f"higgs_force_pack_{selected.id}_{prompt_pack.id}",
+                )
                 existing_job = find_active_higgsfield_job(
                     session,
                     selected_scene_id=selected.id,
@@ -232,9 +240,13 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
                         "Crear nuevo intento aunque ya exista uno",
                         key=f"higgs_force_new_{selected.id}_{prompt_pack.id}",
                     )
-            if st.button("Generar prompt pack", key=f"pack_{selected.id}"):
-                pack = create_prompt_pack_for_selected_scene(session, selected_scene_id=selected.id)
-                st.success(f"HiggsfieldPromptPack #{pack.id} generado.")
+            if st.button("Ver/crear prompt pack", key=f"pack_{selected.id}"):
+                pack = create_prompt_pack_for_selected_scene(
+                    session,
+                    selected_scene_id=selected.id,
+                    force_new_pack=force_new_pack,
+                )
+                st.success(f"HiggsfieldPromptPack #{pack.id}: {pack.status}")
                 st.rerun()
             if st.button(
                 "Preparar job Higgsfield pendiente de confirmacion",

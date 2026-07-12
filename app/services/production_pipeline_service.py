@@ -45,6 +45,13 @@ ACTIVE_HIGGSFIELD_JOB_STATUSES = (
     "manual_required",
 )
 
+ACTIVE_HIGGSFIELD_PROMPT_PACK_STATUSES = (
+    "generated",
+    "draft",
+    "pending_confirmation",
+    "ready",
+)
+
 
 def select_character_for_project(
     session: Session,
@@ -195,7 +202,12 @@ def create_prompt_pack_for_selected_scene(
     session: Session,
     *,
     selected_scene_id: int,
+    force_new_pack: bool = False,
 ) -> models.HiggsfieldPromptPack:
+    existing_pack = find_active_higgsfield_prompt_pack(session, selected_scene_id=selected_scene_id)
+    if existing_pack is not None and not force_new_pack:
+        return existing_pack
+
     selected = _get_or_raise(session, models.SelectedScene, selected_scene_id)
     candidate = _get_or_raise(session, models.SceneCandidate, selected.scene_candidate_id)
     project = _get_or_raise(session, models.VideoProject, selected.video_project_id)
@@ -302,13 +314,23 @@ def find_active_higgsfield_job(
     )
 
 
-def _prompt_pack_for_scene(session: Session, selected_scene_id: int) -> models.HiggsfieldPromptPack:
-    existing = (
-        session.query(models.HiggsfieldPromptPack)
-        .filter_by(selected_scene_id=selected_scene_id)
+def find_active_higgsfield_prompt_pack(
+    session: Session,
+    *,
+    selected_scene_id: int,
+) -> models.HiggsfieldPromptPack | None:
+    return session.scalar(
+        select(models.HiggsfieldPromptPack)
+        .where(
+            models.HiggsfieldPromptPack.selected_scene_id == selected_scene_id,
+            models.HiggsfieldPromptPack.status.in_(ACTIVE_HIGGSFIELD_PROMPT_PACK_STATUSES),
+        )
         .order_by(models.HiggsfieldPromptPack.created_at.desc())
-        .first()
     )
+
+
+def _prompt_pack_for_scene(session: Session, selected_scene_id: int) -> models.HiggsfieldPromptPack:
+    existing = find_active_higgsfield_prompt_pack(session, selected_scene_id=selected_scene_id)
     if existing is not None:
         return existing
     return create_prompt_pack_for_selected_scene(session, selected_scene_id=selected_scene_id)

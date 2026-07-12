@@ -28,6 +28,7 @@ def render() -> None:
                 f"CONTENT_LANGUAGE={settings.content_language}",
                 f"TARGET_MARKET={settings.target_market}",
                 f"DATABASE_URL={settings.database_url}",
+                f"DATABASE_SCHEMA={settings.database_schema or 'public/default'}",
                 f"OUTPUTS_DIR={settings.outputs_dir}",
                 f"ASSETS_DIR={settings.assets_dir}",
                 f"EXPORTS_DIR={settings.exports_dir}",

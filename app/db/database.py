@@ -1,6 +1,5 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-import os
 from collections.abc import Generator
 
 from app.config.settings import get_settings
@@ -19,7 +18,7 @@ from app.db.schema import ensure_runtime_schema
 settings = get_settings()
 
 database_url = settings.database_url
-database_schema = os.getenv("DATABASE_SCHEMA", "").strip()
+database_schema = settings.database_schema
 
 is_sqlite = database_url.startswith("sqlite")
 is_postgres = database_url.startswith("postgresql")
@@ -27,7 +26,7 @@ is_postgres = database_url.startswith("postgresql")
 connect_args: dict[str, object] = {}
 
 if is_sqlite:
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.sqlite_database_path.parent.mkdir(parents=True, exist_ok=True)
     connect_args["check_same_thread"] = False
 
 elif is_postgres:
@@ -53,7 +52,9 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, futu
 def init_db() -> None:
     if is_postgres and database_schema:
         with engine.begin() as connection:
-            connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{database_schema}"'))
+            connection.execute(
+                text(f'CREATE SCHEMA IF NOT EXISTS "{_safe_identifier(database_schema)}"')
+            )
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema(engine)
@@ -69,3 +70,7 @@ def get_session() -> Generator[Session, None, None]:
 
 def new_session() -> Session:
     return SessionLocal()
+
+
+def _safe_identifier(value: str) -> str:
+    return value.replace('"', '""')

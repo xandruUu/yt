@@ -109,6 +109,7 @@ Reglas actuales:
 
 - No se ejecuta una generacion pagada automaticamente.
 - El texto de la UI indica que solo se prepara el payload/job.
+- Para una misma `SelectedScene`, `Ver/crear prompt pack` reutiliza un `HiggsfieldPromptPack` activo salvo regeneracion explicita.
 - Para la misma `selected_scene_id` y `prompt_pack_id`, se reutiliza un job activo existente.
 - Solo se crea otro intento si el usuario marca explicitamente `Crear nuevo intento aunque ya exista uno`.
 
@@ -122,24 +123,35 @@ Confirmacion humana
   -> GeneratedClip
 ```
 
+## Estado actual de Mapeo de clips
+
+`Mapeo de clips` usa el flujo canonico. La pantalla selecciona `VideoProject`, lista `SelectedScene`,
+muestra prompt packs/jobs internos de Higgsfield y crea o actualiza `GeneratedClip` para cada escena.
+
+Reglas actuales:
+
+- No requiere `VisualStoryboard`, `StoryboardScene`, `ExternalAsset` ni `SceneAssetMapping`.
+- Si ya hay `GeneratedClip` para una escena, se actualiza el ultimo salvo que se marque `Crear nueva version`.
+- Licencia, uso comercial y notas quedan en campos propios/metadatos del `GeneratedClip`.
+
 ## Estado actual de Render
 
-`Renderizar` conserva compatibilidad con el flujo legacy basado en `Script` y `ScriptLine`.
+`Renderizar` usa el flujo canonico como modo principal.
 
 Mientras no existan `GeneratedClip` mapeados para todas las `SelectedScene` del proyecto canonico, la pantalla debe avisar que el render puede usar visuales fallback/placeholder y que no es el render final de produccion.
 
-Render canonico deseado:
+Render canonico actual:
 
 ```text
 VideoProject
   -> ScriptDraft aprobado
-  -> VoiceoverJob aprobado
+  -> VoiceoverJob generado/aprobado
   -> SelectedScene[]
   -> GeneratedClip[] mapeados
-  -> SubtitleTrack
-  -> MusicResource opcional
   -> RenderJob
 ```
+
+El boton de render final queda deshabilitado si faltan guion, voz, escenas o clips. El preview placeholder se puede registrar como `RenderJob`, pero se marca explicitamente como no final.
 
 ## Plan de migracion
 
