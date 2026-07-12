@@ -90,6 +90,13 @@ class Settings:
     higgsfield_automation_mode: str
     higgsfield_cli_bin: str
     higgsfield_skills_enabled: bool
+    higgsfield_real_generation_enabled: bool
+    higgsfield_default_model: str
+    higgsfield_default_test_duration_seconds: int
+    higgsfield_wait_timeout: str
+    higgsfield_wait_interval: str
+    higgsfield_known_credit_balance: float
+    higgsfield_download_outputs: bool
     higgsfield_default_aspect_ratio: str
     higgsfield_default_duration_seconds: int
     higgsfield_max_scene_duration_seconds: int
@@ -229,6 +236,15 @@ def get_settings() -> Settings:
         higgsfield_automation_mode=os.getenv("HIGGSFIELD_AUTOMATION_MODE", "manual"),
         higgsfield_cli_bin=os.getenv("HIGGSFIELD_CLI_BIN", "higgsfield"),
         higgsfield_skills_enabled=_env_bool("HIGGSFIELD_SKILLS_ENABLED", True),
+        higgsfield_real_generation_enabled=_env_bool("HIGGSFIELD_REAL_GENERATION_ENABLED", False),
+        higgsfield_default_model=os.getenv("HIGGSFIELD_DEFAULT_MODEL", "veo3_1_lite"),
+        higgsfield_default_test_duration_seconds=int(
+            os.getenv("HIGGSFIELD_DEFAULT_TEST_DURATION_SECONDS", "4")
+        ),
+        higgsfield_wait_timeout=os.getenv("HIGGSFIELD_WAIT_TIMEOUT", "20m"),
+        higgsfield_wait_interval=os.getenv("HIGGSFIELD_WAIT_INTERVAL", "5s"),
+        higgsfield_known_credit_balance=float(os.getenv("HIGGSFIELD_KNOWN_CREDIT_BALANCE", "10")),
+        higgsfield_download_outputs=_env_bool("HIGGSFIELD_DOWNLOAD_OUTPUTS", True),
         higgsfield_default_aspect_ratio=os.getenv("HIGGSFIELD_DEFAULT_ASPECT_RATIO", "9:16"),
         higgsfield_default_duration_seconds=int(
             os.getenv("HIGGSFIELD_DEFAULT_DURATION_SECONDS", "8")

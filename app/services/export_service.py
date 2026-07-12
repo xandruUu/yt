@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from app.core.constants import EXPORT_FILE_NAMES
+from app.db import models
+from app.services.project_status_service import refresh_video_project_status
 from app.services.review_service import checklist_can_export
 from app.utils.files import copy_file, ensure_dir, write_json_file, write_text_file
 from app.utils.language import export_language_folder
@@ -58,11 +61,17 @@ def create_export_package(
             write_text_file(export_folder / "description.txt", description, overwrite=overwrite)
         ),
         "hashtags_file": str(
-            write_text_file(export_folder / "hashtags.txt", "\n".join(hashtag_list), overwrite=overwrite)
+            write_text_file(
+                export_folder / "hashtags.txt", "\n".join(hashtag_list), overwrite=overwrite
+            )
         ),
-        "script_file": str(write_text_file(export_folder / "script.txt", script_text, overwrite=overwrite)),
+        "script_file": str(
+            write_text_file(export_folder / "script.txt", script_text, overwrite=overwrite)
+        ),
         "subtitles_file": str(
-            write_text_file(export_folder / "subtitles.srt", subtitles_srt or "", overwrite=overwrite)
+            write_text_file(
+                export_folder / "subtitles.srt", subtitles_srt or "", overwrite=overwrite
+            )
         ),
         "voiceover_file": str(
             write_text_file(
@@ -72,10 +81,14 @@ def create_export_package(
             )
         ),
         "visual_plan_file": str(
-            write_json_file(export_folder / "visual_plan.json", visual_plan or {}, overwrite=overwrite)
+            write_json_file(
+                export_folder / "visual_plan.json", visual_plan or {}, overwrite=overwrite
+            )
         ),
         "render_plan_file": str(
-            write_json_file(export_folder / "render_plan.json", render_plan or {}, overwrite=overwrite)
+            write_json_file(
+                export_folder / "render_plan.json", render_plan or {}, overwrite=overwrite
+            )
         ),
         "metadata_file": str(
             write_json_file(export_folder / "metadata.json", metadata_payload, overwrite=overwrite)
@@ -101,6 +114,136 @@ def create_export_package(
     return {"export_folder": str(export_folder), **files}
 
 
+def create_canonical_export_package(
+    session,
+    *,
+    render_job_id: int,
+    exports_dir: str | Path,
+    title: str | None = None,
+    description: str | None = None,
+    hashtags: str | list[str] | None = None,
+    overwrite: bool = True,
+) -> dict[str, str]:
+    render_job = session.get(models.RenderJob, render_job_id)
+    if render_job is None:
+        raise ValueError(f"RenderJob not found: {render_job_id}")
+    if render_job.status != "rendered" or not render_job.approved:
+        raise ValueError("Export blocked: RenderJob must be rendered and approved.")
+    if not render_job.output_path or not Path(render_job.output_path).exists():
+        raise FileNotFoundError(render_job.output_path or "RenderJob.output_path")
+
+    project = session.get(models.VideoProject, render_job.video_project_id)
+    if project is None:
+        raise ValueError(f"VideoProject not found: {render_job.video_project_id}")
+
+    script = _latest_script_draft(session, project.id)
+    voiceover = _latest_voiceover(session, project.id)
+    clips = _generated_clips_for_project(session, project.id)
+    recipe = (
+        session.get(models.MetadataRecipeDraft, project.metadata_recipe_id)
+        if project.metadata_recipe_id
+        else None
+    )
+    chosen_title = title or _metadata_title(recipe) or project.title
+    chosen_description = description or _metadata_description(recipe) or project.description
+    chosen_hashtags = normalize_hashtags(
+        hashtags
+        if hashtags is not None
+        else _metadata_hashtags(recipe) or _project_hashtags(project)
+    )
+
+    export_folder = Path(exports_dir).resolve() / f"project_{project.id}_render_{render_job.id}"
+    ensure_dir(export_folder)
+    final_video = copy_file(
+        Path(render_job.output_path),
+        export_folder / "final.mp4",
+        overwrite=overwrite,
+    )
+    metadata = {
+        "video_project_id": project.id,
+        "render_job_id": render_job.id,
+        "script_draft_id": script.id if script else None,
+        "voiceover_job_id": voiceover.id if voiceover else None,
+        "generated_clip_ids": [clip.id for clip in clips],
+        "output_path": str(final_video),
+        "content_language": project.content_language,
+        "created_at": utc_now_iso(),
+        "title": chosen_title,
+        "description": chosen_description,
+        "hashtags": chosen_hashtags,
+    }
+    assets = {
+        "generated_clips": [
+            {
+                "id": clip.id,
+                "selected_scene_id": clip.selected_scene_id,
+                "source": clip.source,
+                "file_path": clip.file_path,
+                "license_type": clip.license_type,
+                "commercial_use_confirmed": clip.commercial_use_confirmed,
+            }
+            for clip in clips
+        ],
+        "voiceover": {
+            "id": voiceover.id if voiceover else None,
+            "provider": voiceover.provider if voiceover else None,
+            "output_path": voiceover.output_path if voiceover else None,
+            "status": voiceover.status if voiceover else None,
+        },
+    }
+    files = {
+        "export_folder": str(export_folder),
+        "video_file": str(final_video),
+        "title_file": str(
+            write_text_file(export_folder / "title.txt", chosen_title, overwrite=overwrite)
+        ),
+        "description_file": str(
+            write_text_file(
+                export_folder / "description.txt", chosen_description, overwrite=overwrite
+            )
+        ),
+        "hashtags_file": str(
+            write_text_file(
+                export_folder / "hashtags.txt", "\n".join(chosen_hashtags), overwrite=overwrite
+            )
+        ),
+        "script_file": str(
+            write_text_file(
+                export_folder / "script.txt",
+                script.voiceover_text if script else "",
+                overwrite=overwrite,
+            )
+        ),
+        "voiceover_file": str(
+            write_text_file(
+                export_folder / "voiceover.txt",
+                _voiceover_summary_text(assets["voiceover"]),
+                overwrite=overwrite,
+            )
+        ),
+        "metadata_file": str(
+            write_json_file(export_folder / "metadata.json", metadata, overwrite=overwrite)
+        ),
+        "assets_file": str(
+            write_json_file(export_folder / "assets.json", assets, overwrite=overwrite)
+        ),
+        "readme_file": str(
+            write_text_file(
+                export_folder / "README.md",
+                _canonical_readme(project, render_job),
+                overwrite=overwrite,
+            )
+        ),
+    }
+    render_metadata = _metadata(render_job.metadata_json)
+    render_metadata["export_folder"] = str(export_folder)
+    render_metadata["exported_at"] = metadata["created_at"]
+    render_job.metadata_json = _write_json_text(render_metadata)
+    session.commit()
+    refresh_video_project_status(session, project.id)
+    return files
+
+
 def _voiceover_summary_text(summary: dict[str, Any] | None) -> str:
     if not summary:
         return "Sin voz o no documentada.\n"
@@ -113,3 +256,84 @@ def _voiceover_summary_text(summary: dict[str, Any] | None) -> str:
         f"status: {summary.get('status', '')}",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _latest_script_draft(session, project_id: int) -> models.ScriptDraft | None:
+    return (
+        session.query(models.ScriptDraft)
+        .filter(models.ScriptDraft.video_project_id == project_id)
+        .order_by(models.ScriptDraft.created_at.desc())
+        .first()
+    )
+
+
+def _latest_voiceover(session, project_id: int) -> models.VoiceoverJob | None:
+    return (
+        session.query(models.VoiceoverJob)
+        .filter(models.VoiceoverJob.video_project_id == project_id)
+        .order_by(models.VoiceoverJob.created_at.desc())
+        .first()
+    )
+
+
+def _generated_clips_for_project(session, project_id: int) -> list[models.GeneratedClip]:
+    return list(
+        session.query(models.GeneratedClip)
+        .filter(models.GeneratedClip.video_project_id == project_id)
+        .order_by(models.GeneratedClip.selected_scene_id, models.GeneratedClip.created_at.desc())
+        .all()
+    )
+
+
+def _metadata_title(recipe: models.MetadataRecipeDraft | None) -> str | None:
+    return recipe.selected_title if recipe and recipe.selected_title else None
+
+
+def _metadata_description(recipe: models.MetadataRecipeDraft | None) -> str | None:
+    return recipe.selected_description if recipe and recipe.selected_description else None
+
+
+def _metadata_hashtags(recipe: models.MetadataRecipeDraft | None) -> list[str] | None:
+    if recipe is None:
+        return None
+    try:
+        value = _json_loads(recipe.selected_hashtags_json)
+    except ValueError:
+        return None
+    return [str(item) for item in value] if isinstance(value, list) else None
+
+
+def _project_hashtags(project: models.VideoProject) -> list[str]:
+    try:
+        value = _json_loads(project.hashtags_json)
+    except ValueError:
+        return normalize_hashtags(project.hashtags_json)
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _metadata(raw: str | None) -> dict[str, Any]:
+    try:
+        value = _json_loads(raw or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _json_loads(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON") from exc
+
+
+def _write_json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _canonical_readme(project: models.VideoProject, render_job: models.RenderJob) -> str:
+    return (
+        f"# ShortsFactory export\n\n"
+        f"- VideoProject: {project.id}\n"
+        f"- RenderJob: {render_job.id}\n"
+        f"- Title: {project.title}\n"
+    )

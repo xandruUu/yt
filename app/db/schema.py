@@ -38,8 +38,25 @@ RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
         "notes": "TEXT",
         "metadata_json": "TEXT",
     },
+    "higgsfield_jobs": {
+        "model_name": "VARCHAR(120)",
+        "requested_duration_seconds": "FLOAT",
+        "requested_aspect_ratio": "VARCHAR(24)",
+        "cost_estimate_credits": "FLOAT",
+        "confirmed_credits": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "cli_command_json": "TEXT",
+        "cli_response_json": "TEXT",
+        "result_json": "TEXT",
+        "output_url": "TEXT",
+        "output_path": "TEXT",
+        "submitted_at": "TIMESTAMP",
+        "completed_at": "TIMESTAMP",
+    },
     "render_jobs": {
         "metadata_json": "TEXT",
+        "approved": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "review_notes": "TEXT",
+        "reviewed_at": "TIMESTAMP",
     },
 }
 

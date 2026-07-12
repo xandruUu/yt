@@ -10,6 +10,7 @@ from app.config.settings import get_settings
 from app.core.enums import ScriptStatus
 from app.db import models
 from app.db.repositories import create_script_with_lines, create_topic
+from app.services.project_status_service import refresh_video_project_status
 from app.services.voiceover_generation_service import create_voiceover_from_script
 
 
@@ -72,6 +73,7 @@ def create_voiceover(
     project.status = "voiceover_generated" if job.status not in {"failed"} else "voiceover_failed"
     session.commit()
     session.refresh(job)
+    refresh_video_project_status(session, project.id)
     return job
 
 
@@ -135,7 +137,8 @@ def _script_lines(script_draft: models.ScriptDraft) -> list[dict[str, object]]:
             {
                 "text": str(beat.get("text") or ""),
                 "visual_suggestion": str(beat.get("visual_intent") or ""),
-                "duration_seconds": float(beat.get("end_second") or 0) - float(beat.get("start_second") or 0)
+                "duration_seconds": float(beat.get("end_second") or 0)
+                - float(beat.get("start_second") or 0)
                 or 8.0,
             }
             for beat in beats
@@ -178,4 +181,3 @@ def _get_or_raise(session: Session, model: type[models.Base], entity_id: int):
     if entity is None:
         raise ValueError(f"{model.__name__} not found: {entity_id}")
     return entity
-

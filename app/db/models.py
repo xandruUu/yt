@@ -897,6 +897,18 @@ class HiggsfieldJob(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     estimated_credits: Mapped[float | None] = mapped_column(Float)
     actual_credits: Mapped[float | None] = mapped_column(Float)
+    model_name: Mapped[str | None] = mapped_column(String(120))
+    requested_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    requested_aspect_ratio: Mapped[str | None] = mapped_column(String(24))
+    cost_estimate_credits: Mapped[float | None] = mapped_column(Float)
+    confirmed_credits: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cli_command_json: Mapped[str | None] = mapped_column(Text)
+    cli_response_json: Mapped[str | None] = mapped_column(Text)
+    result_json: Mapped[str | None] = mapped_column(Text)
+    output_url: Mapped[str | None] = mapped_column(Text)
+    output_path: Mapped[str | None] = mapped_column(Text)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -948,6 +960,9 @@ class RenderJob(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(48), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str | None] = mapped_column(Text)
+    approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ObsidianSyncLog(TimestampMixin, Base):

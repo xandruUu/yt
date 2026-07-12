@@ -5,6 +5,7 @@ import json
 import streamlit as st
 from sqlalchemy import select
 
+from app.config.settings import get_settings
 from app.db import models
 from app.db.database import new_session
 from app.services.character_service import seed_nero_character_system
@@ -12,13 +13,16 @@ from app.services.production_pipeline_service import (
     approve_script_draft,
     check_higgsfield_status,
     create_prompt_pack_for_selected_scene,
+    estimate_higgsfield_cost_for_scene,
     find_active_higgsfield_job,
     find_active_higgsfield_prompt_pack,
-    generate_clip_from_scene,
     generate_script_for_project,
     plan_scenes_for_project,
+    refresh_higgsfield_job_status,
+    register_higgsfield_output_as_generated_clip,
     select_character_for_project,
     select_scene_candidate,
+    submit_higgsfield_job_for_scene,
 )
 from app.services.voiceover_service import create_voiceover, estimate_voiceover_cost_or_usage
 
@@ -202,13 +206,16 @@ def _scene_panel(session, project: models.VideoProject) -> None:
 
 def _higgsfield_panel(session, project: models.VideoProject) -> None:
     st.subheader("5. Higgsfield")
+    settings = get_settings()
     status = check_higgsfield_status()
     st.caption(f"Modo: {status.mode} | Disponible: {status.available} | {status.detail}")
-    st.warning(
-        "Estado actual: ShortsFactory prepara prompt packs y jobs internos. "
-        "Todavia NO envia generaciones reales a Higgsfield CLI/MCP. "
-        "No se consumen creditos desde esta pantalla hasta implementar envio real con confirmacion explicita."
-    )
+    if settings.higgsfield_real_generation_enabled:
+        st.error("Modo real activado: enviar jobs puede consumir creditos de Higgsfield.")
+    else:
+        st.warning(
+            "Modo seguro: la generacion real esta desactivada. "
+            "Puedes estimar costes, pero no enviar jobs reales."
+        )
     selected_scenes = _selected_scenes(session, project.id)
     if not selected_scenes:
         st.info("Selecciona escenas antes de generar prompt packs.")
@@ -218,7 +225,6 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
             st.markdown(f"**SelectedScene #{selected.id}**")
             prompt_pack = find_active_higgsfield_prompt_pack(session, selected_scene_id=selected.id)
             force_new_pack = False
-            force_new_attempt = False
             if prompt_pack is not None:
                 st.info(f"Prompt pack existente: #{prompt_pack.id} [{prompt_pack.status}]")
                 force_new_pack = st.checkbox(
@@ -231,15 +237,44 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
                     prompt_pack_id=prompt_pack.id,
                 )
                 if existing_job is not None:
-                    st.info(
-                        f"Job activo existente: HiggsfieldJob #{existing_job.id} [{existing_job.status}]"
-                    )
-                    if existing_job.error_message:
-                        st.caption(existing_job.error_message)
-                    force_new_attempt = st.checkbox(
-                        "Crear nuevo intento aunque ya exista uno",
-                        key=f"higgs_force_new_{selected.id}_{prompt_pack.id}",
-                    )
+                    _render_higgsfield_job_summary(existing_job)
+                    _render_higgsfield_clip_summary(session, existing_job)
+                else:
+                    st.caption("Sin HiggsfieldJob activo para este prompt pack.")
+            else:
+                existing_job = None
+
+            model_name = st.selectbox(
+                "Modelo seleccionado",
+                ["veo3_1_lite", "seedance_2_0_mini", "wan2_7", "kling3_0_turbo"],
+                index=0,
+                key=f"higgs_model_{selected.id}",
+            )
+            duration_seconds = st.selectbox(
+                "Duracion seleccionada",
+                [4, 6, 8],
+                index=0,
+                key=f"higgs_duration_{selected.id}",
+            )
+            aspect_ratio = st.selectbox(
+                "Aspect ratio",
+                ["9:16", "16:9", "1:1", "4:3", "3:4", "auto"],
+                index=0,
+                key=f"higgs_aspect_{selected.id}",
+            )
+            cols = st.columns(3)
+            cols[0].metric("Saldo conocido local", f"{settings.higgsfield_known_credit_balance:g}")
+            cols[1].metric(
+                "Coste estimado",
+                _credits_label(existing_job.cost_estimate_credits if existing_job else None),
+            )
+            cols[2].metric(
+                "external_job_id",
+                existing_job.external_job_id
+                if existing_job and existing_job.external_job_id
+                else "-",
+            )
+
             if st.button("Ver/crear prompt pack", key=f"pack_{selected.id}"):
                 pack = create_prompt_pack_for_selected_scene(
                     session,
@@ -248,18 +283,104 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
                 )
                 st.success(f"HiggsfieldPromptPack #{pack.id}: {pack.status}")
                 st.rerun()
+
             if st.button(
-                "Preparar job Higgsfield pendiente de confirmacion",
-                key=f"higgs_{selected.id}",
+                "Estimar coste Higgsfield",
+                key=f"higgs_estimate_{selected.id}",
             ):
-                job = generate_clip_from_scene(
+                try:
+                    job = estimate_higgsfield_cost_for_scene(
+                        session,
+                        selected_scene_id=selected.id,
+                        model_name=model_name,
+                        duration_seconds=int(duration_seconds),
+                        aspect_ratio=aspect_ratio,
+                    )
+                except Exception as exc:  # noqa: BLE001 - Streamlit should show the failure.
+                    st.error(str(exc))
+                    return
+                st.success(f"HiggsfieldJob #{job.id}: coste {job.cost_estimate_credits:g} creditos")
+                st.rerun()
+
+            if existing_job is None:
+                continue
+
+            estimated_credits = existing_job.cost_estimate_credits or existing_job.estimated_credits
+            confirmed = st.checkbox(
+                f"Confirmo gastar {_credits_label(estimated_credits)} creditos en Higgsfield para esta escena",
+                key=f"higgs_confirm_{existing_job.id}",
+            )
+            stale_needed = bool(
+                estimated_credits is not None
+                and estimated_credits > settings.higgsfield_known_credit_balance
+            )
+            allow_stale = st.checkbox(
+                "Permitir envio aunque el saldo local pueda estar desactualizado",
+                value=False,
+                disabled=not stale_needed,
+                key=f"higgs_allow_stale_{existing_job.id}",
+            )
+            can_submit = (
+                settings.higgsfield_real_generation_enabled
+                and estimated_credits is not None
+                and confirmed
+                and (not stale_needed or allow_stale)
+                and not existing_job.external_job_id
+            )
+            if st.button(
+                "Enviar a Higgsfield",
+                type="primary",
+                disabled=not can_submit,
+                key=f"higgs_submit_{existing_job.id}",
+            ):
+                try:
+                    job = submit_higgsfield_job_for_scene(
+                        session,
+                        higgsfield_job_id=existing_job.id,
+                        confirmed_credits=confirmed,
+                        allow_stale_balance=allow_stale,
+                    )
+                except Exception as exc:  # noqa: BLE001 - Streamlit should show the failure.
+                    st.error(str(exc))
+                    return
+                st.success(f"HiggsfieldJob #{job.id} enviado: {job.external_job_id}")
+                st.rerun()
+
+            state_cols = st.columns(3)
+            if state_cols[0].button(
+                "Consultar estado Higgsfield",
+                disabled=not bool(existing_job.external_job_id),
+                key=f"higgs_get_{existing_job.id}",
+            ):
+                job = refresh_higgsfield_job_status(
                     session,
-                    selected_scene_id=selected.id,
-                    force_new_attempt=force_new_attempt,
+                    higgsfield_job_id=existing_job.id,
+                    wait=False,
                 )
-                st.success(f"HiggsfieldJob #{job.id}: {job.status}")
-                if job.error_message:
-                    st.warning(job.error_message)
+                st.success(f"Estado actualizado: {job.status}")
+                st.rerun()
+            if state_cols[1].button(
+                "Esperar resultado",
+                disabled=not bool(existing_job.external_job_id),
+                key=f"higgs_wait_{existing_job.id}",
+            ):
+                job = refresh_higgsfield_job_status(
+                    session,
+                    higgsfield_job_id=existing_job.id,
+                    wait=True,
+                )
+                st.success(f"Estado actualizado: {job.status}")
+                st.rerun()
+            if state_cols[2].button(
+                "Registrar output como GeneratedClip",
+                disabled=not bool(existing_job.output_url or existing_job.output_path),
+                key=f"higgs_register_{existing_job.id}",
+            ):
+                clip = register_higgsfield_output_as_generated_clip(
+                    session,
+                    higgsfield_job_id=existing_job.id,
+                )
+                st.success(f"GeneratedClip #{clip.id}: {clip.status}")
                 st.rerun()
     packs = _prompt_packs(session, project.id)
     if packs:
@@ -268,6 +389,44 @@ def _higgsfield_panel(session, project: models.VideoProject) -> None:
                 st.markdown(f"**Pack #{pack.id} - SelectedScene {pack.selected_scene_id}**")
                 st.code(pack.prompt, language="markdown")
                 st.caption(f"Negative: {pack.negative_prompt}")
+
+
+def _render_higgsfield_job_summary(job: models.HiggsfieldJob) -> None:
+    st.info(f"HiggsfieldJob #{job.id} [{job.status}]")
+    rows = {
+        "PromptPack": job.prompt_pack_id,
+        "Modelo": job.model_name or "-",
+        "Duracion": job.requested_duration_seconds or "-",
+        "Aspect ratio": job.requested_aspect_ratio or "-",
+        "Coste estimado": _credits_label(job.cost_estimate_credits or job.estimated_credits),
+        "external_job_id": job.external_job_id or "-",
+        "output_url": job.output_url or "-",
+        "output_path": job.output_path or "-",
+    }
+    st.dataframe(
+        [{"campo": key, "valor": value} for key, value in rows.items()],
+        use_container_width=True,
+        hide_index=True,
+    )
+    if job.error_message:
+        st.warning(job.error_message)
+
+
+def _render_higgsfield_clip_summary(session, job: models.HiggsfieldJob) -> None:
+    clip = session.scalar(
+        select(models.GeneratedClip)
+        .where(models.GeneratedClip.higgsfield_job_id == job.id)
+        .order_by(models.GeneratedClip.created_at.desc())
+    )
+    if clip is None:
+        st.caption("GeneratedClip asociado: -")
+        return
+    st.success(f"GeneratedClip asociado: #{clip.id} [{clip.status}]")
+    st.caption(clip.file_path)
+
+
+def _credits_label(value: float | None) -> str:
+    return "-" if value is None else f"{float(value):g}"
 
 
 def _scripts(session, project_id: int) -> list[models.ScriptDraft]:

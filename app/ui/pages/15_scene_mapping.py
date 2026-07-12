@@ -11,6 +11,7 @@ from app.db import models
 from app.db.database import new_session
 from app.db.repositories import add_and_commit, create_generated_clip
 from app.services.production_pipeline_service import find_active_higgsfield_prompt_pack
+from app.services.project_status_service import refresh_video_project_status
 
 CLIP_STATUSES = ("imported", "mapped", "ready", "failed", "registered")
 
@@ -94,6 +95,7 @@ def upsert_generated_clip_for_scene(
     if clip.status in {"imported", "mapped", "ready", "registered"}:
         selected.status = "mapped"
         session.commit()
+    refresh_video_project_status(session, selected.video_project_id)
     return clip
 
 
@@ -166,21 +168,21 @@ def _render_prompt_pack(prompt_pack: models.HiggsfieldPromptPack | None) -> None
 
 
 def _render_jobs(jobs: list[models.HiggsfieldJob]) -> None:
-    st.markdown("**Jobs Higgsfield internos**")
+    st.markdown("**Jobs Higgsfield**")
     if not jobs:
         st.info("No hay jobs internos para esta escena.")
         return
-    st.warning(
-        "Estos jobs son internos/pendientes. Todavia no son generaciones reales enviadas a Higgsfield."
-    )
     st.dataframe(
         [
             {
                 "id": job.id,
                 "status": job.status,
+                "model": job.model_name,
                 "automation_mode": job.automation_mode,
-                "estimated_credits": job.estimated_credits,
+                "estimated_credits": job.cost_estimate_credits or job.estimated_credits,
                 "external_job_id": job.external_job_id,
+                "output_url": job.output_url,
+                "output_path": job.output_path,
                 "error": job.error_message,
                 "created_at": job.created_at,
             }

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import models
 from app.db.models import Base
+from app.services import canonical_render_service
+from app.services.canonical_render_service import MediaProbe
 
 render_page = importlib.import_module("app.ui.pages.05_render")
 storyboard_page = importlib.import_module("app.ui.pages.14_storyboard")
@@ -77,21 +80,33 @@ def test_scene_mapping_upserts_generated_clip_without_legacy_storyboard(tmp_path
     assert session.query(models.VisualStoryboard).count() == 0
 
 
-def test_canonical_render_readiness_blocks_until_voice_and_clips_exist(tmp_path) -> None:
+def test_canonical_render_readiness_blocks_until_voice_and_clips_exist(
+    monkeypatch,
+    tmp_path,
+) -> None:
     session = _session()
     project, selected, script = _canonical_project(session, with_voice=False)
+    monkeypatch.setattr(canonical_render_service, "_binary_available", lambda _path: True)
+    monkeypatch.setattr(
+        canonical_render_service,
+        "probe_media",
+        lambda path: MediaProbe(path=str(path), duration_seconds=8, width=1080, height=1920),
+    )
 
     missing_voice = render_page.canonical_render_readiness(session, project.id)
     assert missing_voice.script.id == script.id
     assert missing_voice.voiceover is None
     assert missing_voice.can_render_final is False
 
+    voice_path = tmp_path / "voice.mp3"
+    voice_path.write_bytes(b"fake voice")
     voice = models.VoiceoverJob(
         video_project_id=project.id,
         script_draft_id=script.id,
         language="en",
         provider="placeholder",
         input_text=script.voiceover_text,
+        output_path=str(voice_path),
         status="generated",
     )
     session.add(voice)
@@ -119,6 +134,19 @@ def test_canonical_render_readiness_blocks_until_voice_and_clips_exist(tmp_path)
     ready = render_page.canonical_render_readiness(session, project.id)
     assert ready.can_render_final is True
 
+    def fake_ffmpeg_run(command, **_kwargs):
+        output = Path(command[-1])
+        if output.suffix == ".mp4":
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"fake mp4")
+        return canonical_render_service.subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(canonical_render_service.subprocess, "run", fake_ffmpeg_run)
     final_job = render_page.create_canonical_render_job(
         session,
         project_id=project.id,
@@ -131,7 +159,7 @@ def test_canonical_render_readiness_blocks_until_voice_and_clips_exist(tmp_path)
         output_path=str(tmp_path / "preview.mp4"),
         preview=True,
     )
-    assert final_job.status == "ready"
+    assert final_job.status == "rendered"
     assert preview_job.status == "placeholder_preview"
 
 

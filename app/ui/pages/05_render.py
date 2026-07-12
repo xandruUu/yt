@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 
 import streamlit as st
 from sqlalchemy import select
@@ -11,40 +10,18 @@ from app.config.settings import get_settings
 from app.db import models
 from app.db.database import new_session
 from app.db.repositories import create_render_job
-
-SCRIPT_READY_STATUSES = {"script_approved", "approved"}
-VOICE_READY_STATUSES = {
-    "completed",
-    "generated",
-    "approved",
-    "ready",
-    "placeholder",
-    "imported_manual",
-}
-INVALID_CLIP_STATUSES = {"discarded", "rejected", "failed"}
-
-
-@dataclass(frozen=True)
-class CanonicalRenderReadiness:
-    project: models.VideoProject
-    script: models.ScriptDraft | None
-    voiceover: models.VoiceoverJob | None
-    selected_scenes: list[models.SelectedScene]
-    clips_by_scene: dict[int, models.GeneratedClip]
-    blockers: list[str]
-
-    @property
-    def can_render_final(self) -> bool:
-        return not self.blockers
-
-    @property
-    def missing_clip_count(self) -> int:
-        return len(self.selected_scenes) - len(self.clips_by_scene)
+from app.services.canonical_render_service import (
+    RenderReadiness as CanonicalRenderReadiness,
+)
+from app.services.canonical_render_service import (
+    build_render_readiness,
+    render_video_project,
+)
 
 
 def render() -> None:
     st.title("Renderizar")
-    st.caption("Render canonico basado en VideoProject, voz, escenas seleccionadas y clips reales.")
+    st.caption("Render canonico con RenderJob, clips locales, voz local y FFmpeg.")
     settings = get_settings()
     with new_session() as session:
         project = _select_project(session)
@@ -56,7 +33,7 @@ def render() -> None:
         readiness = canonical_render_readiness(session, project.id)
         _render_readiness(readiness)
         st.divider()
-        _render_final_controls(session, readiness, settings)
+        _render_final_controls(session, readiness)
         st.divider()
         _render_preview_controls(session, readiness, settings)
         st.divider()
@@ -64,33 +41,7 @@ def render() -> None:
 
 
 def canonical_render_readiness(session: Session, project_id: int) -> CanonicalRenderReadiness:
-    project = _get_or_raise(session, models.VideoProject, project_id)
-    script = _approved_script(session, project_id)
-    voiceover = _ready_voiceover(session, project_id, script.id if script else None)
-    selected_scenes = _selected_scenes(session, project_id)
-    clips_by_scene = _clips_by_scene(session, [scene.id for scene in selected_scenes])
-    blockers: list[str] = []
-
-    if script is None:
-        blockers.append("Falta guion aprobado. Ve a Produccion -> Guion.")
-    if voiceover is None:
-        blockers.append("Falta voz generada/aprobada. Ve a Produccion -> Voz.")
-    if not selected_scenes:
-        blockers.append("Faltan escenas seleccionadas. Ve a Produccion -> Escenas.")
-    missing = len(selected_scenes) - len(clips_by_scene)
-    if missing:
-        blockers.append(
-            f"Faltan clips reales en {missing}/{len(selected_scenes)} escenas. Ve a Mapeo de clips."
-        )
-
-    return CanonicalRenderReadiness(
-        project=project,
-        script=script,
-        voiceover=voiceover,
-        selected_scenes=selected_scenes,
-        clips_by_scene=clips_by_scene,
-        blockers=blockers,
-    )
+    return build_render_readiness(session, project_id)
 
 
 def create_canonical_render_job(
@@ -100,12 +51,13 @@ def create_canonical_render_job(
     output_path: str | None,
     preview: bool,
 ) -> models.RenderJob:
+    if not preview:
+        return render_video_project(session, video_project_id=project_id, output_path=output_path)
+
     readiness = canonical_render_readiness(session, project_id)
     settings = get_settings()
-    if not preview and not readiness.can_render_final:
-        raise ValueError("No se puede crear render final: faltan piezas canonicas.")
     metadata = {
-        "render_type": "placeholder_preview" if preview else "final_ready",
+        "render_type": "placeholder_preview",
         "script_draft_id": readiness.script.id if readiness.script else None,
         "voiceover_job_id": readiness.voiceover.id if readiness.voiceover else None,
         "selected_scene_ids": [scene.id for scene in readiness.selected_scenes],
@@ -120,8 +72,8 @@ def create_canonical_render_job(
         height=settings.default_video_height,
         fps=float(settings.default_fps),
         duration_seconds=float(readiness.project.target_duration_seconds),
-        status="placeholder_preview" if preview else "ready",
-        error_message="Preview con placeholders; no es render final." if preview else None,
+        status="placeholder_preview",
+        error_message="Preview con placeholders; no es render final.",
         metadata_json=json.dumps(metadata, ensure_ascii=False),
     )
 
@@ -155,44 +107,51 @@ def _render_project_summary(project: models.VideoProject) -> None:
 
 
 def _render_readiness(readiness: CanonicalRenderReadiness) -> None:
-    cols = st.columns(4)
+    cols = st.columns(5)
     cols[0].metric("Guion", readiness.script.status if readiness.script else "faltante")
     cols[1].metric("Voz", readiness.voiceover.status if readiness.voiceover else "faltante")
     cols[2].metric("Escenas", len(readiness.selected_scenes))
     cols[3].metric("Clips", f"{len(readiness.clips_by_scene)}/{len(readiness.selected_scenes)}")
+    cols[4].metric(
+        "FFmpeg",
+        "OK" if readiness.ffmpeg_available and readiness.ffprobe_available else "faltante",
+    )
     if readiness.blockers:
         for blocker in readiness.blockers:
             st.warning(blocker)
     else:
-        st.success("Todo listo para render final con clips reales.")
+        st.success("Todo listo para render final real con FFmpeg.")
 
 
 def _render_final_controls(
     session: Session,
     readiness: CanonicalRenderReadiness,
-    settings,
 ) -> None:
-    st.subheader("Render final con clips reales")
-    output_path = st.text_input(
-        "Ruta de salida final opcional",
-        value=str(settings.output_dir / f"project_{readiness.project.id}_final.mp4"),
+    st.subheader("Render final real con FFmpeg")
+    default_output = (
+        get_settings().output_dir / "renders" / f"project_{readiness.project.id}" / "final.mp4"
     )
+    output_path = st.text_input("Ruta de salida final", value=str(default_output))
+    force = st.checkbox("Sobrescribir final.mp4 si ya existe", value=False)
     if st.button(
-        "Crear RenderJob final",
+        "Render final real con FFmpeg",
         type="primary",
         disabled=not readiness.can_render_final,
     ):
         try:
-            job = create_canonical_render_job(
+            job = render_video_project(
                 session,
-                project_id=readiness.project.id,
+                video_project_id=readiness.project.id,
                 output_path=output_path.strip() or None,
-                preview=False,
+                force=force,
             )
-        except ValueError as exc:
+        except Exception as exc:  # noqa: BLE001 - Streamlit should surface failures.
             st.error(str(exc))
             return
-        st.success(f"RenderJob #{job.id} preparado para render final.")
+        if job.status == "rendered":
+            st.success(f"RenderJob #{job.id} renderizado: {job.output_path}")
+        else:
+            st.error(job.error_message or f"RenderJob #{job.id} fallo.")
         st.rerun()
 
 
@@ -202,11 +161,11 @@ def _render_preview_controls(
     settings,
 ) -> None:
     st.subheader("Preview con placeholders")
-    st.info("Este preview usa placeholders. No es el render final de produccion.")
+    st.info("Este preview usa placeholders. No es render final de produccion.")
     preview_path = str(
         settings.output_dir / f"project_{readiness.project.id}_preview_placeholder.mp4"
     )
-    if st.button("Registrar preview placeholder"):
+    if st.button("Crear preview placeholder"):
         job = create_canonical_render_job(
             session,
             project_id=readiness.project.id,
@@ -218,7 +177,7 @@ def _render_preview_controls(
 
 
 def _render_jobs_table(session: Session, project_id: int) -> None:
-    st.subheader("RenderJobs")
+    st.subheader("RenderJobs existentes")
     jobs = list(
         session.scalars(
             select(models.RenderJob)
@@ -234,6 +193,7 @@ def _render_jobs_table(session: Session, project_id: int) -> None:
             {
                 "id": job.id,
                 "status": job.status,
+                "approved": job.approved,
                 "output_path": job.output_path,
                 "duration": job.duration_seconds,
                 "error": job.error_message,
@@ -244,69 +204,6 @@ def _render_jobs_table(session: Session, project_id: int) -> None:
         use_container_width=True,
         hide_index=True,
     )
-
-
-def _approved_script(session: Session, project_id: int) -> models.ScriptDraft | None:
-    return session.scalar(
-        select(models.ScriptDraft)
-        .where(
-            models.ScriptDraft.video_project_id == project_id,
-            models.ScriptDraft.status.in_(SCRIPT_READY_STATUSES),
-        )
-        .order_by(models.ScriptDraft.created_at.desc())
-    )
-
-
-def _ready_voiceover(
-    session: Session,
-    project_id: int,
-    script_draft_id: int | None,
-) -> models.VoiceoverJob | None:
-    statement = select(models.VoiceoverJob).where(
-        models.VoiceoverJob.video_project_id == project_id,
-        models.VoiceoverJob.status.in_(VOICE_READY_STATUSES),
-    )
-    if script_draft_id is not None:
-        statement = statement.where(models.VoiceoverJob.script_draft_id == script_draft_id)
-    return session.scalar(statement.order_by(models.VoiceoverJob.created_at.desc()))
-
-
-def _selected_scenes(session: Session, project_id: int) -> list[models.SelectedScene]:
-    return list(
-        session.scalars(
-            select(models.SelectedScene)
-            .where(models.SelectedScene.video_project_id == project_id)
-            .order_by(models.SelectedScene.sort_order)
-        ).all()
-    )
-
-
-def _clips_by_scene(
-    session: Session, selected_scene_ids: list[int]
-) -> dict[int, models.GeneratedClip]:
-    if not selected_scene_ids:
-        return {}
-    clips = list(
-        session.scalars(
-            select(models.GeneratedClip)
-            .where(
-                models.GeneratedClip.selected_scene_id.in_(selected_scene_ids),
-                models.GeneratedClip.status.not_in(INVALID_CLIP_STATUSES),
-            )
-            .order_by(models.GeneratedClip.created_at.desc())
-        ).all()
-    )
-    result: dict[int, models.GeneratedClip] = {}
-    for clip in clips:
-        result.setdefault(clip.selected_scene_id, clip)
-    return result
-
-
-def _get_or_raise(session: Session, model: type[models.Base], entity_id: int):
-    entity = session.get(model, entity_id)
-    if entity is None:
-        raise ValueError(f"{model.__name__} not found: {entity_id}")
-    return entity
 
 
 def _project_label(project: models.VideoProject) -> str:

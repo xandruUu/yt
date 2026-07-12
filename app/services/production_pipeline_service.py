@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import urllib.request
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,8 +23,16 @@ from app.db.repositories import (
     create_script_draft,
     create_selected_scene,
 )
-from app.external_tools.higgsfield.client import HiggsfieldClient, HiggsfieldStatus
+from app.external_tools.higgsfield.client import (
+    HiggsfieldClient,
+    HiggsfieldStatus,
+    create_generation_job,
+    estimate_generation_cost,
+    get_generation_job,
+    wait_generation_job,
+)
 from app.services.character_locker_service import character_reference_images
+from app.services.project_status_service import refresh_video_project_status
 
 SCRIPT_SYSTEM_PROMPT = """You are the head writer of a YouTube Shorts factory.
 The UI is Spanish, but the full script and every creative output must be English.
@@ -36,12 +46,10 @@ Each Higgsfield clip must be 7 to 15 seconds.
 Return valid JSON only."""
 
 ACTIVE_HIGGSFIELD_JOB_STATUSES = (
+    "cost_estimated",
     "pending_confirmation",
-    "prepared",
-    "queued",
     "submitted",
     "running",
-    "created",
     "manual_required",
 )
 
@@ -63,7 +71,8 @@ def select_character_for_project(
     character = _get_or_raise(session, models.CharacterProfile, character_profile_id)
     project.character_profile_id = character.id
     project.status = "character_selected"
-    return add_and_commit(session, project)
+    add_and_commit(session, project)
+    return refresh_video_project_status(session, project.id)
 
 
 def generate_script_for_project(
@@ -99,6 +108,7 @@ def generate_script_for_project(
     )
     project.status = "script_draft"
     add_and_commit(session, project)
+    refresh_video_project_status(session, project.id)
     return script
 
 
@@ -111,6 +121,8 @@ def approve_script_draft(session: Session, script_draft_id: int) -> models.Scrip
         project.status = "script_approved"
     session.commit()
     session.refresh(script)
+    if project is not None:
+        refresh_video_project_status(session, project.id)
     return script
 
 
@@ -175,6 +187,7 @@ def plan_scenes_for_project(
         slots.append(slot)
     project.status = "scenes_planned"
     add_and_commit(session, project)
+    refresh_video_project_status(session, project.id)
     return slots
 
 
@@ -195,6 +208,7 @@ def select_scene_candidate(
     )
     candidate.status = "selected"
     session.commit()
+    refresh_video_project_status(session, selected.video_project_id)
     return selected
 
 
@@ -219,7 +233,7 @@ def create_prompt_pack_for_selected_scene(
     references = character_reference_images(session, character.id) if character else []
     prompt = _higgsfield_prompt(project, character, candidate)
     negative = _negative_prompt(character)
-    return create_higgsfield_prompt_pack(
+    pack = create_higgsfield_prompt_pack(
         session,
         video_project_id=project.id,
         selected_scene_id=selected.id,
@@ -233,6 +247,8 @@ def create_prompt_pack_for_selected_scene(
         duration_seconds=candidate.duration_seconds,
         status="generated",
     )
+    refresh_video_project_status(session, project.id)
+    return pack
 
 
 def check_higgsfield_status() -> HiggsfieldStatus:
@@ -261,7 +277,7 @@ def generate_clip_from_scene(
         estimated_credits > get_settings().higgsfield_confirm_credits_above
         and not confirmed_credits
     ):
-        return create_higgsfield_job(
+        job = create_higgsfield_job(
             session,
             video_project_id=prompt_pack.video_project_id,
             selected_scene_id=prompt_pack.selected_scene_id,
@@ -272,8 +288,10 @@ def generate_clip_from_scene(
             error_message="Payload preparado; no se ha enviado a Higgsfield. Requiere confirmacion explicita.",
             estimated_credits=estimated_credits,
         )
+        refresh_video_project_status(session, prompt_pack.video_project_id)
+        return job
     if not status.available:
-        return create_higgsfield_job(
+        job = create_higgsfield_job(
             session,
             video_project_id=prompt_pack.video_project_id,
             selected_scene_id=prompt_pack.selected_scene_id,
@@ -284,7 +302,9 @@ def generate_clip_from_scene(
             error_message=status.detail,
             estimated_credits=estimated_credits,
         )
-    return create_higgsfield_job(
+        refresh_video_project_status(session, prompt_pack.video_project_id)
+        return job
+    job = create_higgsfield_job(
         session,
         video_project_id=prompt_pack.video_project_id,
         selected_scene_id=prompt_pack.selected_scene_id,
@@ -295,6 +315,246 @@ def generate_clip_from_scene(
         error_message="Payload preparado; no se ha enviado todavia a Higgsfield CLI/MCP.",
         estimated_credits=estimated_credits,
     )
+    refresh_video_project_status(session, prompt_pack.video_project_id)
+    return job
+
+
+def estimate_higgsfield_cost_for_scene(
+    session: Session,
+    *,
+    selected_scene_id: int,
+    model_name: str | None = None,
+    duration_seconds: int | None = None,
+    aspect_ratio: str | None = None,
+) -> models.HiggsfieldJob:
+    prompt_pack = _prompt_pack_for_scene(session, selected_scene_id)
+    supersede_stale_higgsfield_jobs(
+        session,
+        selected_scene_id=prompt_pack.selected_scene_id,
+        prompt_pack_id=prompt_pack.id,
+    )
+    existing_job = find_active_higgsfield_job(
+        session,
+        selected_scene_id=prompt_pack.selected_scene_id,
+        prompt_pack_id=prompt_pack.id,
+    )
+    settings = get_settings()
+    chosen_model = model_name or settings.higgsfield_default_model
+    chosen_duration = int(duration_seconds or settings.higgsfield_default_test_duration_seconds)
+    chosen_aspect_ratio = (
+        aspect_ratio or prompt_pack.aspect_ratio or settings.higgsfield_default_aspect_ratio
+    )
+    cost = estimate_generation_cost(
+        prompt=prompt_pack.prompt,
+        model_name=chosen_model,
+        duration_seconds=chosen_duration,
+        aspect_ratio=chosen_aspect_ratio,
+        generate_audio=False,
+    )
+    payload_json = _job_payload(
+        prompt_pack,
+        model_name=chosen_model,
+        duration_seconds=chosen_duration,
+        aspect_ratio=chosen_aspect_ratio,
+    )
+    job = existing_job or models.HiggsfieldJob(
+        video_project_id=prompt_pack.video_project_id,
+        selected_scene_id=prompt_pack.selected_scene_id,
+        prompt_pack_id=prompt_pack.id,
+        automation_mode="cli",
+    )
+    job.status = "cost_estimated"
+    job.model_name = chosen_model
+    job.requested_duration_seconds = float(chosen_duration)
+    job.requested_aspect_ratio = chosen_aspect_ratio
+    job.cost_estimate_credits = cost.credits
+    job.estimated_credits = cost.credits
+    job.confirmed_credits = False
+    job.submitted_payload_json = payload_json
+    job.cli_command_json = json.dumps(cost.cli_result.command, ensure_ascii=False)
+    job.cli_response_json = _cli_result_json(cost.cli_result)
+    job.error_message = None
+    if existing_job is None:
+        session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def submit_higgsfield_job_for_scene(
+    session: Session,
+    *,
+    higgsfield_job_id: int,
+    confirmed_credits: bool,
+    allow_stale_balance: bool = False,
+) -> models.HiggsfieldJob:
+    job = _get_or_raise(session, models.HiggsfieldJob, higgsfield_job_id)
+    settings = get_settings()
+    if not settings.higgsfield_real_generation_enabled:
+        raise ValueError("HIGGSFIELD_REAL_GENERATION_ENABLED=false. No se puede gastar creditos.")
+    if not confirmed_credits:
+        raise ValueError("Falta confirmacion explicita para gastar creditos.")
+    if job.cost_estimate_credits is None and job.estimated_credits is None:
+        raise ValueError("Estima el coste antes de enviar a Higgsfield.")
+    credits = float(job.cost_estimate_credits or job.estimated_credits or 0)
+    if credits > settings.higgsfield_known_credit_balance and not allow_stale_balance:
+        raise ValueError("El coste estimado supera el saldo conocido local.")
+    if job.external_job_id:
+        return job
+
+    prompt_pack = _get_or_raise(session, models.HiggsfieldPromptPack, job.prompt_pack_id)
+    try:
+        result = create_generation_job(
+            prompt=prompt_pack.prompt,
+            confirmed_credits=True,
+            model_name=job.model_name or settings.higgsfield_default_model,
+            aspect_ratio=job.requested_aspect_ratio or prompt_pack.aspect_ratio,
+            duration_seconds=int(
+                job.requested_duration_seconds or settings.higgsfield_default_test_duration_seconds
+            ),
+            generate_audio=False,
+            real_generation_enabled=True,
+        )
+    except Exception as exc:
+        job.status = "failed"
+        job.error_message = str(exc)
+        session.commit()
+        session.refresh(job)
+        raise
+
+    job.external_job_id = result.external_job_id
+    job.status = result.raw.get("status") or result.raw.get("state") or "submitted"
+    job.confirmed_credits = True
+    job.submitted_at = models.now_utc()
+    job.started_at = job.started_at or job.submitted_at
+    job.cli_command_json = json.dumps(result.cli_result.command, ensure_ascii=False)
+    job.cli_response_json = _cli_result_json(result.cli_result)
+    job.result_json = json.dumps(result.raw, ensure_ascii=False)
+    job.output_url = result.output_url
+    job.error_message = None
+    session.commit()
+    session.refresh(job)
+    refresh_video_project_status(session, job.video_project_id)
+    return job
+
+
+def refresh_higgsfield_job_status(
+    session: Session,
+    *,
+    higgsfield_job_id: int,
+    wait: bool = False,
+) -> models.HiggsfieldJob:
+    job = _get_or_raise(session, models.HiggsfieldJob, higgsfield_job_id)
+    if not job.external_job_id:
+        raise ValueError("El job no tiene external_job_id.")
+    try:
+        result = (
+            wait_generation_job(job.external_job_id)
+            if wait
+            else get_generation_job(job.external_job_id)
+        )
+    except Exception as exc:
+        job.status = "failed"
+        job.error_message = str(exc)
+        session.commit()
+        session.refresh(job)
+        return job
+
+    status = result.status or job.status
+    job.status = status
+    job.cli_command_json = json.dumps(result.cli_result.command, ensure_ascii=False)
+    job.cli_response_json = _cli_result_json(result.cli_result)
+    job.result_json = json.dumps(result.raw, ensure_ascii=False)
+    job.output_url = result.output_url or job.output_url
+    job.error_message = None
+    if _is_completed_higgsfield_status(status) or job.output_url:
+        job.completed_at = models.now_utc()
+        job.finished_at = job.finished_at or job.completed_at
+    session.commit()
+    session.refresh(job)
+    refresh_video_project_status(session, job.video_project_id)
+    return job
+
+
+def register_higgsfield_output_as_generated_clip(
+    session: Session,
+    *,
+    higgsfield_job_id: int,
+    download_output: bool | None = None,
+) -> models.GeneratedClip:
+    job = _get_or_raise(session, models.HiggsfieldJob, higgsfield_job_id)
+    if not job.external_job_id:
+        raise ValueError("El job no tiene external_job_id.")
+    if not job.output_url and not job.output_path:
+        raise ValueError("El job no tiene output_url ni output_path.")
+    settings = get_settings()
+    should_download = (
+        settings.higgsfield_download_outputs if download_output is None else download_output
+    )
+    path_or_url = job.output_path or job.output_url or ""
+    notes = ""
+    if job.output_url and should_download:
+        try:
+            path_or_url = str(_download_higgsfield_output(settings.output_dir, job))
+            job.output_path = path_or_url
+        except Exception as exc:  # noqa: BLE001 - keep remote output usable.
+            path_or_url = job.output_url
+            notes = f"No se pudo descargar automaticamente: {exc}"
+
+    existing_clip = session.scalar(
+        select(models.GeneratedClip)
+        .where(models.GeneratedClip.higgsfield_job_id == job.id)
+        .order_by(models.GeneratedClip.created_at.desc())
+    )
+    clip = existing_clip or models.GeneratedClip(
+        video_project_id=job.video_project_id,
+        selected_scene_id=job.selected_scene_id,
+        prompt_pack_id=job.prompt_pack_id,
+        higgsfield_job_id=job.id,
+        file_path=path_or_url,
+    )
+    clip.video_project_id = job.video_project_id
+    clip.selected_scene_id = job.selected_scene_id
+    clip.prompt_pack_id = job.prompt_pack_id
+    clip.higgsfield_job_id = job.id
+    clip.external_job_id = job.external_job_id
+    clip.source = "higgsfield"
+    clip.asset_type = "video"
+    clip.file_path = path_or_url
+    clip.duration_seconds = job.requested_duration_seconds
+    clip.license_type = "generated_owned"
+    clip.commercial_use_confirmed = True
+    clip.notes = notes or "Registrado desde output Higgsfield."
+    clip.metadata_json = job.result_json
+    clip.status = "ready" if _local_path_exists(path_or_url) else "registered_remote"
+    if existing_clip is None:
+        session.add(clip)
+    job.status = "registered"
+    session.commit()
+    session.refresh(clip)
+    refresh_video_project_status(session, job.video_project_id)
+    return clip
+
+
+def supersede_stale_higgsfield_jobs(
+    session: Session,
+    *,
+    selected_scene_id: int,
+    prompt_pack_id: int | None = None,
+) -> int:
+    statement = select(models.HiggsfieldJob).where(
+        models.HiggsfieldJob.selected_scene_id == selected_scene_id,
+        models.HiggsfieldJob.status == "created",
+        models.HiggsfieldJob.external_job_id.is_(None),
+    )
+    if prompt_pack_id is not None:
+        statement = statement.where(models.HiggsfieldJob.prompt_pack_id == prompt_pack_id)
+    jobs = list(session.scalars(statement).all())
+    for job in jobs:
+        job.status = "superseded"
+        job.error_message = "Job interno antiguo sustituido por el flujo canónico de coste/envio."
+    session.commit()
+    return len(jobs)
 
 
 def find_active_higgsfield_job(
@@ -482,17 +742,68 @@ def _negative_prompt(character: models.CharacterProfile | None) -> str:
     return f"{character.negative_prompt_fragment or character.negative_prompt}. {base}"
 
 
-def _job_payload(prompt_pack: models.HiggsfieldPromptPack) -> str:
+def _job_payload(
+    prompt_pack: models.HiggsfieldPromptPack,
+    *,
+    model_name: str | None = None,
+    duration_seconds: int | float | None = None,
+    aspect_ratio: str | None = None,
+) -> str:
     return json.dumps(
         {
+            "model_name": model_name or get_settings().higgsfield_default_model,
             "prompt": prompt_pack.prompt,
             "negative_prompt": prompt_pack.negative_prompt,
             "reference_images": json.loads(prompt_pack.reference_images_json or "[]"),
-            "aspect_ratio": prompt_pack.aspect_ratio,
-            "duration_seconds": prompt_pack.duration_seconds,
+            "aspect_ratio": aspect_ratio or prompt_pack.aspect_ratio,
+            "duration_seconds": duration_seconds or prompt_pack.duration_seconds,
+            "generate_audio": False,
         },
         ensure_ascii=False,
     )
+
+
+def _cli_result_json(cli_result) -> str:
+    return json.dumps(
+        {
+            "command": cli_result.command,
+            "stdout": cli_result.stdout,
+            "stderr": cli_result.stderr,
+            "returncode": cli_result.returncode,
+            "data": cli_result.data,
+            "error": cli_result.error,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _download_higgsfield_output(output_root: Path, job: models.HiggsfieldJob) -> Path:
+    if not job.output_url:
+        raise ValueError("El job no tiene output_url.")
+    folder = output_root / "higgsfield" / f"project_{job.video_project_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    destination = folder / f"scene_{job.selected_scene_id}_{job.external_job_id or job.id}.mp4"
+    with urllib.request.urlopen(job.output_url, timeout=120) as response:
+        destination.write_bytes(response.read())
+    return destination
+
+
+def _local_path_exists(value: str | None) -> bool:
+    if not value or value.startswith(("http://", "https://")):
+        return False
+    return Path(value).exists()
+
+
+def _is_completed_higgsfield_status(status: str | None) -> bool:
+    return (status or "").lower() in {
+        "completed",
+        "complete",
+        "succeeded",
+        "success",
+        "finished",
+        "done",
+        "ready",
+    }
 
 
 def _word_count(value: str) -> int:
